@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { deQuemEAOrdem } from './utils/de-quem-e-a-ordem.util';
+import { nossoPoloPelasPartes } from './correlacao.service';
 import { publicacoesQueCitam } from './utils/publicacoes-que-citam.util';
 import { tenant } from '../../tenant/tenant.config';
 
@@ -233,17 +234,25 @@ export class DjenBuscaService {
     const ids = [...new Set(itens.map((i) => i.processo?.id).filter(Boolean))] as string[];
     if (!ids.length) return itens.map((i) => ({ ...i, ordemEhNossa: null }));
 
+    /*
+      A QUARTA CÓPIA DA REGRA DO POLO VIROU CHAMADA (31/10/2026).
+
+      Estas sete linhas eram `nossoPoloPelasPartes` escrita de novo, à mão —
+      iguais por acaso, e por isso nada tinha quebrado. "Duas leituras do polo
+      em arquivos diferentes" é o defeito que o próprio comentário daquela
+      função já avisava; esta era a terceira.
+    */
     const nossas = await this.prisma.parteProcesso.findMany({
-      where: { processoId: { in: ids }, parteExterna: { institucional: true } },
-      select: { processoId: true, polo: true },
+      where: { processoId: { in: ids } },
+      select: {
+        processoId: true,
+        polo: true,
+        parteExterna: { select: { institucional: true } },
+      },
     });
     const polos = new Map<string, 'ATIVO' | 'PASSIVO' | null>();
     for (const id of ids) {
-      const meus = nossas.filter((x) => x.processoId === id);
-      const ativo = meus.some((x) => x.polo === 'ATIVO');
-      const passivo = meus.some((x) => x.polo === 'PASSIVO');
-      // Nos dois polos (recurso) não há papel a comparar.
-      polos.set(id, ativo && !passivo ? 'ATIVO' : passivo && !ativo ? 'PASSIVO' : null);
+      polos.set(id, nossoPoloPelasPartes(nossas.filter((x) => x.processoId === id)));
     }
 
     return itens.map((i) => {

@@ -196,14 +196,25 @@ function ladoDoDestinatario(
   */
   if (/\bPARTE[S]? CONTRARIA[S]?\b/.test(d)) return 'INDEFINIDO';
 
-  const ativo = PAPEL_ATIVO.test(d);
-  const passivo = PAPEL_PASSIVO.test(d);
-  // "reclamante e reclamada" na mesma ordem: é para os dois.
-  if (ativo && passivo) return 'NOSSA';
+  /*
+    O DESTINATÁRIO É O PAPEL MAIS PERTO DO VERBO — ver `papelMaisPertoDoVerbo`.
+
+    A janela do destinatário tem 70 caracteres e engole o resto da frase, então
+    é comum ela trazer os DOIS papéis: "notifique-se o RECLAMADO para apresentar
+    os documentos indicados pelo SINDICATO AUTOR". Quem foi notificado é o
+    reclamado; o autor é quem pediu. O código aqui respondia 'NOSSA' aos dois
+    papéis na janela e criava a tarefa — exatamente o caso que fechou este
+    arquivo em 29/10 pelo outro lado.
+
+    "AMBOS" continua valendo como nossa: a conjunção ("reclamante E reclamada")
+    obriga os dois mesmo.
+  */
+  const papel = papelMaisPertoDoVerbo(d);
+  if (papel === 'AMBOS') return 'NOSSA';
 
   if (!nossoPolo) return ehSindicatoGenerico ? 'NOSSA' : 'INDEFINIDO';
-  if (ativo) return nossoPolo === 'ATIVO' ? 'NOSSA' : 'DA_OUTRA_PARTE';
-  if (passivo) return nossoPolo === 'PASSIVO' ? 'NOSSA' : 'DA_OUTRA_PARTE';
+  if (papel === 'ATIVO') return nossoPolo === 'ATIVO' ? 'NOSSA' : 'DA_OUTRA_PARTE';
+  if (papel === 'PASSIVO') return nossoPolo === 'PASSIVO' ? 'NOSSA' : 'DA_OUTRA_PARTE';
 
   return ehSindicatoGenerico ? 'NOSSA' : 'INDEFINIDO';
 }
@@ -389,6 +400,45 @@ export function prazoPendurado(frase: string): boolean {
 const RE_LIGADOS_POR_E = /^[\s,)(]*E\s+(?:A|O|AS|OS)?\s*$/;
 
 /**
+ * QUEM É O DESTINATÁRIO NESTA JANELA — o papel mais perto do verbo.
+ *
+ * Esta função existe porque este arquivo tinha DOIS leitores da mesma frase e
+ * eles discordavam. Medido na produção em 31/10/2026, no ato real:
+ *
+ *   "NOTIFIQUE-SE O RECLAMADO PARA APRESENTAR OS DOCUMENTOS INDICADOS PELO
+ *    SINDICATO AUTOR, NO PRAZO DE 5 DIAS, SOB PENA DE MULTA"
+ *
+ *   `deQuemEOPrazo`  → DA_OUTRA_PARTE   (certo: o prazo é do reclamado)
+ *   `deQuemEAOrdem`  → NOSSA            (errado)
+ *
+ * A mesma frase, dois vereditos opostos, e quem decide se a tarefa nasce é o
+ * SEGUNDO. Resultado: "Juntar documentos", marcada URGENTE, na agenda do Dr.
+ * Carlos, para uma obrigação da empresa ré.
+ *
+ * A regra da proximidade foi medida e escrita em 29/10/2026 — e aplicada só a
+ * `quemFoiIntimado`. O irmão ficou com `if (ativo && passivo) return 'NOSSA'`,
+ * que é a desistência de antes. Consertar um caminho que decide e deixar o
+ * outro é o defeito que esta base já pagou três vezes; agora é um leitor só.
+ *
+ * `null` quando a janela não nomeia papel nenhum — quem chama decide o que
+ * fazer com isso, e os dois decidem coisas diferentes de propósito.
+ */
+export function papelMaisPertoDoVerbo(janela: string): 'ATIVO' | 'PASSIVO' | 'AMBOS' | null {
+  const ativo = PAPEL_ATIVO.exec(janela);
+  const passivo = PAPEL_PASSIVO.exec(janela);
+  if (!ativo && !passivo) return null;
+  if (ativo && !passivo) return 'ATIVO';
+  if (passivo && !ativo) return 'PASSIVO';
+
+  const primeiro = ativo!.index < passivo!.index ? ativo! : passivo!;
+  const segundo = ativo!.index < passivo!.index ? passivo! : ativo!;
+  const entre = janela.slice(primeiro.index + primeiro[0].length, segundo.index);
+  // A conjunção obriga os dois; qualquer outra coisa no meio e o primeiro ganha.
+  if (RE_LIGADOS_POR_E.test(entre)) return 'AMBOS';
+  return ativo!.index < passivo!.index ? 'ATIVO' : 'PASSIVO';
+}
+
+/**
  * QUEM FOI INTIMADO — e por que o mais PERTO do verbo ganha o empate.
  *
  * A versão anterior desistia quando os dois papéis apareciam na janela
@@ -420,18 +470,7 @@ export function quemFoiIntimado(frase: string): 'ATIVO' | 'PASSIVO' | 'AMBOS' | 
   const m = RE_VERBO_DE_ORDEM.exec(frase);
   if (!m) return null;
   const fim = m.index + m[0].length;
-  const janela = frase.slice(fim, fim + JANELA_DO_DESTINATARIO);
-  const ativo = PAPEL_ATIVO.exec(janela);
-  const passivo = PAPEL_PASSIVO.exec(janela);
-  if (!ativo && !passivo) return null;
-  if (ativo && !passivo) return 'ATIVO';
-  if (passivo && !ativo) return 'PASSIVO';
-
-  const primeiro = ativo!.index < passivo!.index ? ativo! : passivo!;
-  const segundo = ativo!.index < passivo!.index ? passivo! : ativo!;
-  const entre = janela.slice(primeiro.index + primeiro[0].length, segundo.index);
-  if (RE_LIGADOS_POR_E.test(entre)) return 'AMBOS';
-  return ativo!.index < passivo!.index ? 'ATIVO' : 'PASSIVO';
+  return papelMaisPertoDoVerbo(frase.slice(fim, fim + JANELA_DO_DESTINATARIO));
 }
 
 export function deQuemEOPrazo(

@@ -1233,9 +1233,9 @@ export class CorrelacaoService {
         filiadoId: true,
         // O polo do sindicato sai do VÍNCULO com o cadastro institucional, não
         // do nome: as 96 partes que são o sindicato estão todas ligadas a ele.
+        // O recorte "só as institucionais" é de `nossoPoloPelasPartes`, não daqui.
         partes: {
-          where: { parteExterna: { institucional: true } },
-          select: { polo: true },
+          select: { polo: true, parteExterna: { select: { institucional: true } } },
         },
       },
     });
@@ -1298,6 +1298,13 @@ interface ProcessoAlvo {
   nossoPolo: 'ATIVO' | 'PASSIVO' | null;
 }
 
+/** O mínimo que uma parte precisa trazer para o polo ser decidido. */
+export interface ParteParaPolo {
+  polo: string | null;
+  /** O vínculo com o cadastro do sindicato — é por ele que nos reconhecemos. */
+  parteExterna?: { institucional: boolean } | null;
+}
+
 /**
  * DE QUE LADO O SINDICATO ESTÁ NESTE PROCESSO — uma implementação só.
  *
@@ -1309,12 +1316,24 @@ interface ProcessoAlvo {
  * Virou função exportada em 17/09/2026 porque a caixa de propostas passou a
  * precisar da mesma resposta para saber de quem é o prazo. Duas leituras do
  * polo em arquivos diferentes é o defeito que esta base já pagou três vezes.
+ *
+ * E O FILTRO PASSOU PARA DENTRO DELA EM 31/10/2026.
+ *
+ * A assinatura aceitava `{ polo }[]` e o recorte "só as institucionais" morava
+ * em três `where` espalhados, longe daqui. Quem passasse as partes INTEIRAS
+ * recebia `null` — todo processo normal tem gente nos dois polos — e `null`
+ * cala a atribuição de dever em silêncio: nenhum erro, nenhum log, só o robô
+ * parando de distinguir ordem nossa de ordem alheia. Eu mesmo caí nisso ao
+ * medir a produção, e o número saiu "12 de 13 processos INDEFINIDO" antes de
+ * eu notar que o errado era a medição.
+ *
+ * Agora o recorte é da função. Quem chama passa as partes e `parteExterna`
+ * junto; esquecer o `where` não muda resposta nenhuma.
  */
-export function nossoPoloPelasPartes(
-  partes: { polo: string | null }[],
-): 'ATIVO' | 'PASSIVO' | null {
-  const noAtivo = partes.some((x) => x.polo === 'ATIVO');
-  const noPassivo = partes.some((x) => x.polo === 'PASSIVO');
+export function nossoPoloPelasPartes(partes: ParteParaPolo[]): 'ATIVO' | 'PASSIVO' | null {
+  const nossas = partes.filter((x) => x.parteExterna?.institucional === true);
+  const noAtivo = nossas.some((x) => x.polo === 'ATIVO');
+  const noPassivo = nossas.some((x) => x.polo === 'PASSIVO');
   return noAtivo && !noPassivo ? 'ATIVO' : noPassivo && !noAtivo ? 'PASSIVO' : null;
 }
 

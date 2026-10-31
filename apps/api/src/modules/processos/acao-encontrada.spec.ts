@@ -56,14 +56,33 @@ describe('a detecção na ingestão', () => {
     expect(fn).toContain('if (!polo) continue;');
   });
 
-  /** O TEOR NÃO É GUARDADO: decidir se vale cadastrar não exige o texto do ato. */
+  /**
+   * O TEOR NÃO É GRAVADO — e a asserção passou a mirar a GRAVAÇÃO (31/10/2026).
+   *
+   * O teste dizia `not.toContain('texto')` sobre a função inteira, isto é,
+   * proibia a PALAVRA. Em 31/10 a função passou a LER o cabeçalho do ato para
+   * descobrir quem está no polo que os destinatários não cobrem — o Diário
+   * manda uma cópia por destinatário e só recebemos as nossas, então um
+   * processo em que só o sindicato foi intimado chegava à tela de importação
+   * com "quem pede" em branco. O teste ficou vermelho com o arquivo CERTO.
+   *
+   * A decisão de privacidade que ele protege continua inteira, e é sobre o que
+   * se ESCREVE: a sugestão guarda número, tribunal, órgão, classe e NOMES —
+   * nunca o texto do ato nem o link para ele. Então é isso que se afirma, no
+   * payload do upsert e sem comentários no meio.
+   */
   it('não persiste o teor de um processo que ainda não é nosso', () => {
     const fn = SYNC.slice(
       SYNC.indexOf('private async sugerirAcoesNossas('),
       SYNC.indexOf('private async ingerir('),
     );
-    expect(fn).not.toContain('texto');
-    expect(fn).not.toContain('link');
+    const gravado = fn
+      .slice(fn.indexOf('sugestaoProcesso.upsert('))
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
+    expect(gravado).toContain('numeroCNJ,');
+    expect(gravado).not.toMatch(/texto\s*:/);
+    expect(gravado).not.toMatch(/link\s*:/);
   });
 
   /**

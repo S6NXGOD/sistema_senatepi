@@ -6,6 +6,7 @@ import {
   oPrazoPodeVirarData,
   outraEntidadeNomeada,
 } from './de-quem-e-a-ordem.util';
+import { nossoPoloPelasPartes } from '../correlacao.service';
 
 /**
  * O PRAZO ERA DA RECLAMADA E VIROU TAREFA DO NOSSO ADVOGADO.
@@ -180,10 +181,56 @@ describe('quem usa a regra', () => {
     expect(CORRELACAO).toContain('deQuemEOPrazo(');
   });
 
-  /** O polo sai do VÍNCULO institucional, nunca do nome — nos dois lados. */
-  it('os dois leem o polo do cadastro institucional', () => {
-    expect(BUSCA).toContain('parteExterna: { institucional: true }');
-    expect(CORRELACAO).toContain('parteExterna: { institucional: true }');
+  /**
+   * O POLO SAI DO VÍNCULO INSTITUCIONAL, NUNCA DO NOME — e por UMA função.
+   *
+   * Isto era `toContain('parteExterna: { institucional: true }')` nos dois
+   * arquivos, porque o recorte morava num `where` em cada consulta. Em
+   * 31/10/2026 ele passou para DENTRO de `nossoPoloPelasPartes`, e o motivo é
+   * o defeito que a assinatura antiga convidava: aceitando `{ polo }[]`, quem
+   * passasse as partes INTEIRAS recebia `null` — todo processo tem gente nos
+   * dois polos — e `null` cala a atribuição de dever em silêncio. Eu mesmo caí
+   * nisso medindo a produção.
+   *
+   * `djen-busca` tinha, além do `where`, a regra REESCRITA à mão (sete linhas
+   * iguais por acaso). Era a quarta leitura do mesmo dado no módulo. Agora os
+   * dois chamam a mesma função, e o teste afirma a chamada e o comportamento.
+   */
+  it('os dois leem o polo pela mesma função', () => {
+    expect(BUSCA).toContain('nossoPoloPelasPartes(');
+    expect(CORRELACAO).toContain('nossoPoloPelasPartes(');
+    // E `djen-busca` não refaz a conta: nenhum `some` sobre polo sobrou lá.
+    expect(BUSCA).not.toMatch(/some\(\(x\) => x\.polo ===/);
+  });
+
+  /*
+    E A FUNÇÃO É QUE FILTRA. Este é o teste que faltava quando o recorte morava
+    longe dela: entregar as partes inteiras tem de dar o polo certo, não `null`.
+  */
+  it('entregar TODAS as partes dá o polo certo, não indefinido', () => {
+    expect(
+      nossoPoloPelasPartes([
+        { polo: 'ATIVO', parteExterna: { institucional: true } },
+        { polo: 'PASSIVO', parteExterna: { institucional: false } },
+        { polo: 'PASSIVO', parteExterna: null },
+      ]),
+    ).toBe('ATIVO');
+  });
+
+  it('sem nenhuma parte nossa, continua indefinido', () => {
+    expect(
+      nossoPoloPelasPartes([{ polo: 'ATIVO' }, { polo: 'PASSIVO' }]),
+    ).toBeNull();
+  });
+
+  /** Nos dois polos (recurso) não há papel a comparar — 11% dos casos medidos. */
+  it('o sindicato nos dois polos continua indefinido', () => {
+    expect(
+      nossoPoloPelasPartes([
+        { polo: 'ATIVO', parteExterna: { institucional: true } },
+        { polo: 'PASSIVO', parteExterna: { institucional: true } },
+      ]),
+    ).toBeNull();
   });
 });
 

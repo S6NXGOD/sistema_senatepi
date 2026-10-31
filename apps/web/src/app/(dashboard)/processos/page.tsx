@@ -171,6 +171,8 @@ function ListaProcessos() {
   const [sugerido, setSugerido] = useState<{
     numeroCNJ: string;
     partes: { nome?: string | null; polo?: string | null }[] | null;
+    /** O lado que os destinatários não cobrem, citado do cabeçalho do ato. */
+    cabecalho: { polo?: string | null; nome?: string | null; rotulo?: string | null }[] | null;
     /** Ids dos NOSSOS advogados citados no ato — o primeiro responde. */
     advogados: string[] | null;
   } | null>(null);
@@ -225,7 +227,7 @@ function ListaProcessos() {
       // Abre JÁ, com o que a URL tem. O resto chega no efeito abaixo, assim que
       // a fila responder — prender o diálogo esperando a rede seria trocar um
       // formulário meio vazio por uma tela parada.
-      setSugerido({ numeroCNJ: npu, partes: null, advogados: null });
+      setSugerido({ numeroCNJ: npu, partes: null, cabecalho: null, advogados: null });
       setImportOpen(true);
     },
     '/processos',
@@ -264,6 +266,7 @@ function ListaProcessos() {
     setSugerido({
       numeroCNJ: achada.numeroCNJ,
       partes: achada.partes,
+      cabecalho: achada.partesDoCabecalho ?? null,
       advogados: (achada.advogadosNossos ?? []).map((a) => a.id),
     });
   }, [filaDeSugestoes.data, sugerido]);
@@ -693,6 +696,7 @@ function ListaProcessos() {
           setSugerido({
             numeroCNJ: s.numeroCNJ,
             partes: s.partes,
+            cabecalho: s.partesDoCabecalho ?? null,
             advogados: (s.advogadosNossos ?? []).map((a) => a.id),
           });
           setImportOpen(true);
@@ -997,6 +1001,7 @@ function ListaProcessos() {
         open={importOpen}
         npuInicial={sugerido?.numeroCNJ ?? null}
         partesIniciais={sugerido?.partes ?? null}
+        cabecalhoDoAto={sugerido?.cabecalho ?? null}
         advogadosIniciais={sugerido?.advogados ?? null}
         onClose={() => {
           setImportOpen(false);

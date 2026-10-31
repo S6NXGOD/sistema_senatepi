@@ -2363,6 +2363,16 @@ model SugestaoProcesso {
   /// precisar abrir o tribunal.
   partes Json?
 
+  /// O que o CABEÇALHO do ato diz sobre o polo que os destinatários não cobrem.
+  ///
+  /// O Diário publica uma comunicação por destinatário e só recebemos as
+  /// endereçadas à nossa OAB: num processo em que só o sindicato foi intimado,
+  /// `partes` tem um lado só e a tela de importação abre com o outro em branco.
+  /// O cabeçalho do próprio ato nomeia os dois em 78% das publicações, então
+  /// isto é a CITAÇÃO do ato — nunca uma parte gravada. Ver
+  /// `partes-do-cabecalho.util`.
+  partesDoCabecalho Json? @map("partes_do_cabecalho")
+
   /// Advogados nomeados no ato.
   advogados Json?
 

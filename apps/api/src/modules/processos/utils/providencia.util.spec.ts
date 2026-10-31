@@ -409,3 +409,51 @@ describe('aviso de inclusão em pauta', () => {
     expect(classificarProvidencia(acordao, 'Intimação').providencia).toBe('AVALIAR_RECURSO');
   });
 });
+
+/**
+ * A EXECUÇÃO QUE ACABOU PORQUE FOI PAGA.
+ *
+ * Caso real do 0000502-65.2015.5.22.0101, achado em 31/10/2026 varrendo as
+ * atividades abertas: o robô leu "PAGAMENTO" e abriu "Comunicar filiado",
+ * URGENTE, numa ação coletiva sem filiado vinculado, para um processo que foi
+ * pago com a nossa concordância e está indo para o arquivo definitivo.
+ */
+describe('execução extinta por pagamento não vira tarefa', () => {
+  const O_ATO =
+    'VISTOS ETC., CONSIDERANDO QUE A FINALIDADE DA EXECUÇÃO FOI PLENAMENTE ATINGIDA PELA ' +
+    'SATISFAÇÃO DA OBRIGAÇÃO DE FAZER E DE PAGAR, E EXISTINDO CONCORDÂNCIA EXPRESSA DA ' +
+    'PARTE CREDORA, IMPÕE-SE O ENCERRAMENTO DA PRESENTE FASE PROCESSUAL. ANTE O EXPOSTO, ' +
+    'JULGO EXTINTA A EXECUÇÃO, COM FULCRO NO ARTIGO 924, INCISO II, DO CÓDIGO DE PROCESSO ' +
+    'CIVIL. DETERMINO À SECRETARIA QUE PROCEDA AO IMEDIATO DESBLOQUEIO E A DEVOLUÇÃO AO ' +
+    'MUNICÍPIO DE BURITI DOS LOPES DOS VALORES RETIDOS CAUTELARMENTE. APÓS O TRÂNSITO EM ' +
+    'JULGADO E CUMPRIDAS AS DETERMINAÇÕES SUPRA, REMETAM-SE OS AUTOS AO ARQUIVO DEFINITIVO.';
+
+  it('o ato da produção deixa de pedir providência', () => {
+    expect(classificarProvidencia(O_ATO, 'Intimação').providencia).toBe('NENHUMA');
+  });
+
+  /*
+    AS TRÊS CONDIÇÕES SÃO NECESSÁRIAS. Tirar qualquer uma devolve a tarefa — é
+    isso que mantém a regra estreita, e é o que separa "foi pago e acabou" de
+    "foi extinto sem mérito", que é exatamente quando se recorre.
+  */
+  it('"julgo extinta" SEM pagamento continua pedindo leitura', () => {
+    const semMerito =
+      'ANTE O EXPOSTO, JULGO EXTINTO O PROCESSO SEM RESOLUÇÃO DO MÉRITO, NOS TERMOS DO ' +
+      'ART. 485, VI, DO CPC. ARQUIVEM-SE OS AUTOS.';
+    expect(classificarProvidencia(semMerito, 'Intimação').providencia).not.toBe('NENHUMA');
+  });
+
+  it('pagamento SEM ir ao arquivo continua pedindo leitura', () => {
+    const semArquivo =
+      'JULGO EXTINTA A EXECUÇÃO PELA SATISFAÇÃO DA OBRIGAÇÃO. AGUARDE-SE EM SECRETARIA.';
+    expect(classificarProvidencia(semArquivo, 'Intimação').providencia).not.toBe('NENHUMA');
+  });
+
+  it('e QUALQUER prazo escrito no ato reabre a tarefa', () => {
+    const comPrazo = `${O_ATO} MANIFESTEM-SE AS PARTES NO PRAZO DE 5 (CINCO) DIAS.`;
+    const r = classificarProvidencia(comPrazo, 'Intimação');
+    expect(r.prazoMencionadoDias).toBe(5);
+    expect(r.providencia).not.toBe('NENHUMA');
+  });
+});

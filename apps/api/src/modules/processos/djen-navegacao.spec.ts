@@ -99,7 +99,16 @@ describe('só entra publicação de processo cadastrado', () => {
       SYNC.indexOf('private async ingerir('),
     );
     expect(fn).toContain('if (!polo) continue;');
-    expect(fn).not.toContain('texto');
+    /*
+      O TEOR NÃO VAI PARA O BANCO — e a asserção mira o que se GRAVA, não a
+      palavra. A função lê o cabeçalho do ato desde 31/10/2026 para completar o
+      polo que os destinatários não cobrem; o que entra na linha são nomes.
+    */
+    const gravado = fn
+      .slice(fn.indexOf('sugestaoProcesso.upsert('))
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
+    expect(gravado).not.toMatch(/texto\s*:/);
   });
 
   it('e o que sobra nunca é gravado — nem o número do processo alheio', () => {

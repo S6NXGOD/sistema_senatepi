@@ -141,6 +141,44 @@ const RE_COMUNICAR = /(ACORDO HOMOLOGADO|HOMOLOGO O ACORDO|TRANSITO EM JULGADO|A
 const RE_SEM_PROVIDENCIA = /(LISTA DE DISTRIBUICAO|DISTRIBUICAO POR SORTEIO|MERO EXPEDIENTE)/;
 
 /**
+ * A EXECUÇÃO ACABOU PORQUE FOI PAGA — e aí não há o que fazer.
+ *
+ * Caso real, encontrado em 31/10/2026 varrendo as atividades abertas a pedido
+ * do dono. No 0000502-65.2015.5.22.0101 o juízo escreveu:
+ *
+ *   "CONSIDERANDO QUE A FINALIDADE DA EXECUÇÃO FOI PLENAMENTE ATINGIDA PELA
+ *    SATISFAÇÃO DA OBRIGAÇÃO DE FAZER E DE PAGAR, E EXISTINDO CONCORDÂNCIA
+ *    EXPRESSA DA PARTE CREDORA (...) JULGO EXTINTA A EXECUÇÃO (...)
+ *    REMETAM-SE OS AUTOS AO ARQUIVO DEFINITIVO"
+ *
+ * Nós somos a parte credora, a concordância é nossa, o dinheiro entrou e o
+ * processo vai para o arquivo. A única ordem do ato é à SECRETARIA do fórum.
+ * O robô leu "PAGAMENTO" e abriu "Comunicar filiado", marcada URGENTE, numa
+ * ação coletiva que não tem um filiado para comunicar — e ela ficou dois dias
+ * vencida na agenda da Dra. Morgana.
+ *
+ * AS TRÊS CONDIÇÕES SÃO TODAS NECESSÁRIAS, e é por isso que a regra é estreita:
+ *
+ *  · extinta POR PAGAMENTO — "julgo extinta" sozinho não serve. Extinção sem
+ *    julgamento do mérito (art. 485) é exatamente quando se recorre, e calar
+ *    ali custaria o recurso. Dos 68 atos do acervo que falam de encerramento,
+ *    só 3 passam por esta porta;
+ *  · AO ARQUIVO — o processo tem de estar indo embora, não sendo arquivado
+ *    "provisoriamente" para voltar depois;
+ *  · SEM PRAZO no ato — qualquer prazo escrito significa que alguém ainda deve
+ *    algo, e aí a notícia não é só notícia.
+ *
+ * A publicação continua visível em Publicações, como toda publicação. O que
+ * esta regra decide é apenas que ela não vira trabalho na agenda de ninguém.
+ */
+const RE_EXTINTA_POR_PAGAMENTO =
+  /(SATISFACAO DA OBRIGACAO|CUMPRIMENTO INTEGRAL DA OBRIGACAO|ARTIGO 924,? INCISO II|ART\.? 924,? II|PAGAMENTO INTEGRAL DO DEBITO|QUITACAO INTEGRAL)/;
+
+/** O processo indo embora de vez — "provisório" de propósito fica fora. */
+const RE_AO_ARQUIVO =
+  /(ARQUIVO DEFINITIVO|ARQUIVEM-SE OS AUTOS|REMETAM-SE OS AUTOS AO ARQUIVO|BAIXA DEFINITIVA|ARQUIVE-SE DEFINITIVAMENTE)/;
+
+/**
  * NÚMEROS POR EXTENSO — o jeito que o juiz escreve.
  *
  * Medido nas 136 publicações da produção: de 79 que citam "prazo", 41 não
@@ -401,6 +439,7 @@ export interface ClassificacaoProvidencia {
  *
  * ORDEM DAS REGRAS — cada uma só é consultada se a anterior não resolveu:
  *  1. sem providência (lista de distribuição, mero expediente);
+ *  1b. execução extinta por PAGAMENTO e indo ao arquivo → nada a fazer;
  *  2. pauta designada        → PREPARAR_AUDIENCIA;
  *  3. sentença               → ANALISAR_SENTENCA (decidir recurso vem junto);
  *  4. peça a redigir         → ELABORAR_MANIFESTACAO;
@@ -441,6 +480,20 @@ export function classificarProvidencia(
   });
 
   if (RE_SEM_PROVIDENCIA.test(t)) return resolver('NENHUMA');
+  /*
+    EXECUÇÃO EXTINTA POR PAGAMENTO VEM ANTES DE SENTENÇA — ver
+    `RE_EXTINTA_POR_PAGAMENTO`. Sem esta ordem o ato cairia em
+    `ANALISAR_SENTENCA` (ou, pelo "PAGAMENTO", em `COMUNICAR_FILIADO`) e abriria
+    tarefa para um processo que foi pago, com a nossa concordância, e está indo
+    para o arquivo.
+  */
+  if (
+    prazoMencionadoDias == null &&
+    RE_EXTINTA_POR_PAGAMENTO.test(t) &&
+    RE_AO_ARQUIVO.test(t)
+  ) {
+    return resolver('NENHUMA');
+  }
   if (RE_AUDIENCIA.test(t) && RE_DESIGNACAO.test(t)) return resolver('PREPARAR_AUDIENCIA');
   if (RE_SENTENCA.test(t)) return resolver('ANALISAR_SENTENCA');
   // Recurso vem ANTES de manifestação quando o processo já foi julgado: uma ata

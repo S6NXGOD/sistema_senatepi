@@ -193,6 +193,8 @@ export class SugestoesService {
         nomeClasse: true,
         nossoPolo: true,
         partes: true,
+        // O lado que os destinatários não cobrem, citado do cabeçalho do ato.
+        partesDoCabecalho: true,
         advogados: true,
         primeiraEm: true,
         ultimaEm: true,

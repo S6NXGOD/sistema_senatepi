@@ -53,8 +53,13 @@ const proposta = (id: string, texto: string, atras: number, extra: Linha = {}): 
   tarefaPropostaPara: 'u-murilo',
   tarefaDispensadaEm: null,
   tarefaDispensadaMotivo: null,
-  // O sindicato é o AUTOR deste processo.
-  processo: { partes: [{ polo: 'ATIVO' }] },
+  /*
+    O sindicato é o AUTOR deste processo — e o VÍNCULO institucional vem junto.
+    Desde 31/10/2026 é `nossoPoloPelasPartes` que aplica o recorte "só as
+    nossas"; antes ele morava num `where` da consulta, e a fixture podia omitir
+    o vínculo e ainda assim valer como nossa.
+  */
+  processo: { partes: [{ polo: 'ATIVO', parteExterna: { institucional: true } }] },
   ...extra,
 });
 

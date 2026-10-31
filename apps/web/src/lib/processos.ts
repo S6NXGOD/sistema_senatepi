@@ -842,6 +842,19 @@ export interface SugestaoDeProcesso {
    */
   nossoPolo: 'ATIVO' | 'PASSIVO' | 'AMBOS' | 'INDEFINIDO';
   partes: { nome?: string | null; polo?: string | null }[] | null;
+  /**
+   * O QUE O CABEÇALHO DO ATO DIZ SOBRE O LADO QUE FALTA.
+   *
+   * O Diário publica uma comunicação por destinatário e só recebemos as
+   * endereçadas à nossa OAB: num processo em que só o sindicato foi intimado,
+   * `partes` tem um lado só. Onze das 42 sugestões estão nesse estado, e a
+   * tela de importação abria com "quem pede" em branco. O cabeçalho do próprio
+   * ato nomeia os dois em 78% das publicações — e isto é a CITAÇÃO dele, para
+   * a pessoa aproveitar com um clique. Nada entra na ficha sem esse clique.
+   */
+  partesDoCabecalho?:
+    | { polo?: string | null; nome?: string | null; rotulo?: string | null }[]
+    | null;
   advogados: { nome?: string | null; numeroOab?: string | null; ufOab?: string | null }[] | null;
   primeiraEm: string;
   ultimaEm: string;

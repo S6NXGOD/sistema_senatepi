@@ -135,8 +135,9 @@ function bancoEmMemoria(mundo: Mundo) {
     advogadoId: 'u-murilo',
     filiadoId: null,
     // O sindicato é o AUTOR: é o que permite ler "intime-se a reclamada" como
-    // ordem da parte contrária.
-    partes: [{ polo: 'ATIVO' }],
+    // ordem da parte contrária. O vínculo institucional vem na parte porque é
+    // `nossoPoloPelasPartes` que decide quais partes são nossas.
+    partes: [{ polo: 'ATIVO', parteExterna: { institucional: true } }],
   };
 
   const prisma = {

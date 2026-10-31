@@ -61,12 +61,58 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 
+/**
+ * O QUE O ATO DIZ SOBRE O LADO QUE FICOU VAZIO.
+ *
+ * Aparece só quando aquele polo está em branco e o cabeçalho do ato nomeia
+ * alguém. É uma CITAÇÃO, com o rótulo que o tribunal usou ("AUTOR",
+ * "SUSCITANTE", "POLO PASSIVO") — e não um palpite do sistema: o nome entra na
+ * ficha quando a pessoa clicar, nunca antes.
+ *
+ * O trecho pode trazer MAIS DE UM NOME ("REU: FULANO, SINDICATO DOS
+ * ENFERMEIROS, AUXILIARES..."), porque a vírgula que separa dois réus é a
+ * mesma que existe dentro da razão social — não dá para partir sem errar. Por
+ * isso o texto é mostrado inteiro e o botão diz "usar este texto": quem lê
+ * ajusta em dois segundos, e ninguém grava um nome cortado no meio.
+ */
+function CitacaoDoCabecalho({
+  trecho,
+  rotulo,
+  onUsar,
+}: {
+  trecho: string;
+  rotulo?: string | null;
+  onUsar: () => void;
+}) {
+  return (
+    <div className="rounded-md border border-dashed bg-muted/40 px-2.5 py-2">
+      <p className="text-[11px] leading-snug text-muted-foreground">
+        O ato não listou este lado entre os intimados, mas o cabeçalho dele diz:
+      </p>
+      <p className="mt-1 text-xs leading-snug">
+        {rotulo ? (
+          <span className="font-semibold uppercase text-muted-foreground">{rotulo}: </span>
+        ) : null}
+        <span className="font-medium text-foreground">{trecho}</span>
+      </p>
+      <button
+        type="button"
+        onClick={onUsar}
+        className="mt-2 flex h-9 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-medium transition hover:bg-muted sm:h-8 sm:px-2.5"
+      >
+        <UserPlus className="h-3.5 w-3.5" /> Usar este texto
+      </button>
+    </div>
+  );
+}
+
 export function ImportarProcessoDialog({
   open,
   onClose,
   onImported,
   npuInicial,
   partesIniciais,
+  cabecalhoDoAto,
   advogadosIniciais,
 }: {
   open: boolean;
@@ -90,6 +136,16 @@ export function ImportarProcessoDialog({
    * DIGITASSE na seguinte — tendo a informação na mão.
    */
   partesIniciais?: { nome?: string | null; polo?: string | null }[] | null;
+  /**
+   * O que o CABEÇALHO do ato diz sobre o polo que os destinatários não cobrem.
+   *
+   * O Diário manda uma comunicação por destinatário e só recebemos as nossas:
+   * num processo em que só o sindicato foi intimado, um dos lados abre vazio e
+   * a pessoa tem de ir ao tribunal descobrir quem é. O cabeçalho do próprio
+   * ato nomeia os dois em 78% das publicações — isto é a CITAÇÃO dele, não um
+   * cadastro, e só entra na ficha se alguém clicar.
+   */
+  cabecalhoDoAto?: { polo?: string | null; nome?: string | null; rotulo?: string | null }[] | null;
   /**
    * OS ADVOGADOS QUE O PRÓPRIO ATO NOMEIA.
    *
@@ -635,6 +691,39 @@ export function ImportarProcessoDialog({
   const poloVazio = poloAtivo.length === 0;
 
   /**
+   * A CITAÇÃO DO CABEÇALHO, por polo — e só para o lado que está vazio.
+   *
+   * Preenchido o lado, a citação some: ela existe para destravar quem não tem
+   * o nome, não para discutir com o que a pessoa acabou de escolher.
+   */
+  const citacao = useMemo(() => {
+    const porPolo = new Map<'A' | 'P', { nome: string; rotulo: string | null }>();
+    for (const x of cabecalhoDoAto ?? []) {
+      const polo = String(x?.polo ?? '').trim().toUpperCase();
+      const nome = String(x?.nome ?? '').trim();
+      if ((polo !== 'A' && polo !== 'P') || !nome || porPolo.has(polo)) continue;
+      porPolo.set(polo, { nome, rotulo: x?.rotulo ? String(x.rotulo) : null });
+    }
+    return porPolo;
+  }, [cabecalhoDoAto]);
+
+  /**
+   * O texto citado vira parte do mesmo jeito que o nome do Diário vira.
+   *
+   * O sindicato tem tipo próprio — repô-lo como avulsa criaria a segunda
+   * "parte SENATEPI" solta que o gate de organizações existe para evitar.
+   */
+  const usarCitacao = (polo: 'A' | 'P') => {
+    const achado = citacao.get(polo);
+    if (!achado) return;
+    const parte: ParteEditavel = ehOSindicato(achado.nome, tenant.sigla)
+      ? { tipo: 'INSTITUCIONAL', nome: tenant.nome, detalhe: 'O próprio sindicato' }
+      : { tipo: 'AVULSA', nome: achado.nome, detalhe: 'Citado no cabeçalho do ato' };
+    if (polo === 'A') setPoloAtivo((atual) => (jaEstaNaLista(atual, parte) ? atual : [...atual, parte]));
+    else setReus((atual) => (jaEstaNaLista(atual, parte) ? atual : [...atual, parte]));
+  };
+
+  /**
    * ESC fecha. O drawer trazia isso de graça; num modal próprio é nosso.
    * (O Enter para enviar é comportamento nativo do form — o cuidado necessário
    * está nos campos de BUSCA, onde Enter significa "procurar", não "importar":
@@ -690,7 +779,28 @@ export function ImportarProcessoDialog({
       </div>
 
       <form onSubmit={handleSubmit((d) => importar.mutate(d))} className="flex flex-1 flex-col overflow-hidden">
-        <div className="grid flex-1 gap-x-6 gap-y-4 overflow-y-auto p-5 md:grid-cols-2 md:items-start">
+        {/*
+          `grid-cols-1` NÃO É REDUNDANTE — era o modal vazando no celular.
+
+          Medido em 31/10/2026 com o Chrome a 400px: o painel tem 368px e o
+          conteúdo dele tinha **723**, com 9 elementos passando da borda
+          direita. O texto saía cortado ("Última: Conclusão — Para", "confira e
+          troque") e não havia barra de rolagem para alcançá-lo: o painel tem
+          `overflow-hidden`, então o que vaza simplesmente some.
+
+          A causa é o `grid` sem coluna declarada. Sem `grid-template-columns`
+          o navegador cria UMA coluna implícita de tamanho `auto`, que é
+          max-content: basta um filho com largura mínima grande (um seletor,
+          uma linha que não quebra) e a coluna inteira cresce, levando todos os
+          irmãos junto — por isso TODOS os elementos mediam os mesmos 723px.
+
+          `grid-cols-1` do Tailwind emite `repeat(1, minmax(0, 1fr))`, e o
+          `minmax(0, ...)` é exatamente a permissão que faltava para a coluna
+          encolher abaixo do conteúdo. No `md` em diante a classe é sobrescrita
+          por `md:grid-cols-2`, que já tinha o mesmo `minmax(0, 1fr)` e por isso
+          nunca mostrou o defeito no desktop.
+        */}
+        <div className="grid flex-1 grid-cols-1 gap-x-6 gap-y-4 overflow-y-auto p-5 md:grid-cols-2 md:items-start">
           {/* ================= COLUNA 1 — IDENTIFICAÇÃO E ATRIBUIÇÃO ================= */}
           <div className="space-y-4">
           {/* NPU com máscara automática */}
@@ -1094,6 +1204,22 @@ export function ImportarProcessoDialog({
             </div>
 
             {/*
+              A CITAÇÃO VEM ANTES DA BUSCA, não depois da ajuda.
+
+              Na primeira versão ela ficava no fim da seção, abaixo do campo de
+              procurar e das duas linhas de ajuda. A 400px isso é uma rolagem
+              inteira: quem abre a ficha com o polo vazio pergunta "quem é?" — e
+              a resposta aparecia depois de tudo que só serve a quem já sabe.
+            */}
+            {poloVazio && citacao.has('A') && (
+              <CitacaoDoCabecalho
+                trecho={citacao.get('A')!.nome}
+                rotulo={citacao.get('A')!.rotulo}
+                onUsar={() => usarCitacao('A')}
+              />
+            )}
+
+            {/*
               TRÊS BOTÕES EXCLUSIVOS VIRARAM UMA RELAÇÃO.
 
               Era "Filiado(s)" OU "Ação institucional" OU, num link abaixo, "a
@@ -1212,6 +1338,15 @@ export function ImportarProcessoDialog({
             <label className="flex items-center gap-1.5 text-sm font-medium">
               <Building2 className="h-4 w-4 text-muted-foreground" /> Polo passivo — contra quem
             </label>
+
+            {/* Mesma regra do polo ativo: o nome que o ato dá vem antes da busca. */}
+            {reus.length === 0 && citacao.has('P') && (
+              <CitacaoDoCabecalho
+                trecho={citacao.get('P')!.nome}
+                rotulo={citacao.get('P')!.rotulo}
+                onUsar={() => usarCitacao('P')}
+              />
+            )}
 
             {/*
               O AVISO DE DUPLICATA VIROU RESULTADO DE BUSCA.

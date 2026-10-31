@@ -14,6 +14,10 @@ import { instanciaBaixada } from './utils/audiencia.util';
 import { FONTE_DJEN, SincronizacaoLogService } from './sincronizacao-log.service';
 import { classificarProvidencia } from './utils/providencia.util';
 import { nossoPoloNoAto, type PoloDetectado } from './utils/acao-nossa.util';
+import {
+  completarPolosQueFaltam,
+  type ParteDoCabecalho,
+} from './utils/partes-do-cabecalho.util';
 import { chaveOab, separarAdvogadosDoAto } from './utils/advogados-do-ato.util';
 import { VinculoDeAdvogadoService } from './vinculo-de-advogado.service';
 import { PartesDoDiarioService } from './partes-do-diario.service';
@@ -1170,21 +1174,81 @@ export class DjenSyncService {
     */
     const porNpu = new Map<
       string,
-      { c: ComunicacaoDjenDto; polo: PoloDetectado; n: number; de: Date; ate: Date }
+      {
+        c: ComunicacaoDjenDto;
+        polo: PoloDetectado;
+        n: number;
+        de: Date;
+        ate: Date;
+        /** Destinatários de TODAS as publicações do lote, não só da primeira. */
+        partes: { nome: string; polo: string }[];
+        /** O que o cabeçalho de alguma delas diz sobre o lado que falta. */
+        cabecalho: ParteDoCabecalho[];
+      }
     >();
+
+    /** O conjunto de polos que uma lista de partes realmente cobre. */
+    const polosCobertos = (partes: { polo: string }[]) =>
+      new Set(
+        partes
+          .map((x) => String(x.polo ?? '').trim().toUpperCase())
+          .filter((x) => x === 'A' || x === 'P'),
+      );
 
     for (const c of foraDoAcervo) {
       const polo = nossoPoloNoAto(c.destinatarios, sigla);
       if (!polo) continue;
       const quando = new Date(`${c.dataDisponibilizacao}T00:00:00Z`);
+      /*
+        AS PARTES SÓ MELHORAM — e antes elas congelavam na PRIMEIRA publicação.
+
+        O lote traz várias publicações do mesmo processo (no 0753756-36 são
+        duas, uma por advogado nosso). O código guardava `c` da primeira e as
+        demais só somavam no contador, então a lista de partes era a de UMA
+        cópia. A mesma omissão existia no `update`: `partes` não aparecia lá, e
+        um processo que entrou na fila com um lado só ficava com um lado só
+        para sempre. Onze das 42 sugestões estão nesse estado.
+      */
+      const destinatarios = (
+        Array.isArray(c.destinatarios) ? (c.destinatarios as { nome?: unknown; polo?: unknown }[]) : []
+      )
+        .map((d) => ({ nome: String(d?.nome ?? '').trim(), polo: String(d?.polo ?? '').trim() }))
+        .filter((d) => d.nome);
+
       const atual = porNpu.get(c.numeroProcesso);
-      if (atual) {
-        atual.n++;
-        if (quando < atual.de) atual.de = quando;
-        if (quando > atual.ate) atual.ate = quando;
-      } else {
-        porNpu.set(c.numeroProcesso, { c, polo, n: 1, de: quando, ate: quando });
+      const alvo =
+        atual ??
+        (() => {
+          const novo = {
+            c,
+            polo,
+            n: 0,
+            de: quando,
+            ate: quando,
+            partes: [] as { nome: string; polo: string }[],
+            cabecalho: [] as ParteDoCabecalho[],
+          };
+          porNpu.set(c.numeroProcesso, novo);
+          return novo;
+        })();
+
+      alvo.n++;
+      if (quando < alvo.de) alvo.de = quando;
+      if (quando > alvo.ate) alvo.ate = quando;
+      for (const d of destinatarios) {
+        const repetida = alvo.partes.some((x) => x.nome === d.nome && x.polo === d.polo);
+        if (!repetida) alvo.partes.push(d);
       }
+    }
+
+    /*
+      E O CABEÇALHO FECHA O QUE SOBRA. Só depois de juntar todas as cópias dá
+      para saber se um lado ficou de fora — e aí vale ler o ato. A citação é
+      para a TELA mostrar; nenhuma parte é gravada a partir dela.
+    */
+    for (const item of porNpu.values()) {
+      if (polosCobertos(item.partes).size >= 2) continue;
+      item.cabecalho = completarPolosQueFaltam(item.c.texto, item.partes.map((x) => x.polo));
     }
     if (!porNpu.size) return 0;
 
@@ -1203,7 +1267,12 @@ export class DjenSyncService {
           nomeOrgao: item.c.nomeOrgao ?? null,
           nomeClasse: item.c.nomeClasse ?? null,
           nossoPolo: item.polo,
-          partes: (item.c.destinatarios ?? null) as unknown as Prisma.InputJsonValue,
+          partes: (item.partes.length
+            ? item.partes
+            : (item.c.destinatarios ?? null)) as unknown as Prisma.InputJsonValue,
+          ...(item.cabecalho.length
+            ? { partesDoCabecalho: item.cabecalho as unknown as Prisma.InputJsonValue }
+            : {}),
           advogados: (item.c.advogados ?? null) as unknown as Prisma.InputJsonValue,
           primeiraEm: item.de,
           ultimaEm: item.ate,
@@ -1219,6 +1288,18 @@ export class DjenSyncService {
             que já tínhamos.
           */
           ...(item.polo !== 'INDEFINIDO' ? { nossoPolo: item.polo } : {}),
+          /*
+            A LISTA DE PARTES TAMBÉM SÓ MELHORA, e a régua é a mesma: substitui
+            apenas quando o que chegou cobre OS DOIS polos. Assim não há como
+            uma publicação nova, de um lado só, apagar a lista completa que já
+            estava gravada — e não é preciso ler a linha antes de escrever.
+          */
+          ...(polosCobertos(item.partes).size >= 2
+            ? { partes: item.partes as unknown as Prisma.InputJsonValue }
+            : {}),
+          ...(item.cabecalho.length
+            ? { partesDoCabecalho: item.cabecalho as unknown as Prisma.InputJsonValue }
+            : {}),
         },
         select: { createdAt: true, updatedAt: true },
       });
