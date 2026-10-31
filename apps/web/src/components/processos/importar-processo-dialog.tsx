@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  X, Search, Loader2, Gavel, Landmark, Scale, Building2,
+  X, Search, Loader2, Gavel, Landmark, Scale, Building2, Newspaper,
   CheckCircle2, AlertTriangle, ShieldAlert, Sparkles, Tag, Users,
   ChevronRight, UserPlus, UserCheck, Star,
 } from 'lucide-react';
@@ -33,9 +33,10 @@ import { ehOSindicato } from '@/lib/sigla-do-sindicato';
 import { cn } from '@/lib/utils';
 import {
   importarProcesso, mascararNPU, consultarDatajud, sugerirAdvogado,
-  aliasTribunalDoNPU, ORIGEM_SUGESTAO_LABEL,
-  ProcessoDetalhe, ConsultaDatajud, SugestaoAdvogado, PoloAtivoInput,
+  aliasTribunalDoNPU, ORIGEM_SUGESTAO_LABEL, consultarPartesNoDiario,
+  ProcessoDetalhe, ConsultaDatajud, SugestaoAdvogado, PoloAtivoInput, PartesNoDiario,
 } from '@/lib/processos';
+import { formatDataPura } from '@/lib/data-pura';
 import { tenant } from '@/tenant.config';
 import { V } from '@/lib/vocabulario';
 
@@ -286,13 +287,26 @@ export function ImportarProcessoDialog({
    */
   const [reus, setReus] = useState<ParteEditavel[]>([]);
   /**
-   * AS PARTES QUE O DIÁRIO PÔS NOS DOIS POLOS.
+   * OS NOMES QUE O ATO CITA E CUJO LADO O SISTEMA NÃO ASSINA.
    *
-   * Só acontece em recurso, quando os dois lados recorreram — 11% dos casos
-   * medidos na varredura. Elas não entram em polo nenhum até alguém escolher:
-   * ver o comentário do efeito que preenche as partes.
+   * São DUAS situações, e por isso cada item carrega a sua própria frase:
+   *
+   *  · a mesma parte nos dois polos — recurso em que os dois lados recorreram,
+   *    11% dos casos medidos na varredura;
+   *  · o ato é um recurso dentro do número da ação de origem — ali o lado
+   *    publicado é a posição recursal e acerta 39,2% das vezes (medição de
+   *    31/10/2026 sobre 1.956 publicações).
+   *
+   * Uma faixa só para as duas: eram duas caixas âmbar empilhadas dizendo quase
+   * a mesma coisa na mesma dobra, e repetir aviso é o jeito mais rápido de
+   * ensinar alguém a não ler aviso.
    */
-  const [nosDoisPolos, setNosDoisPolos] = useState<ParteEditavel[]>([]);
+  const [semLado, setSemLado] = useState<{ parte: ParteEditavel; porque: string }[]>([]);
+
+  /** A frase do caso clássico: o tribunal pôs o mesmo nome dos dois lados. */
+  const PORQUE_DOIS_POLOS =
+    'é recurso: os dois lados recorreram, então o tribunal marca cada um como recorrente e ' +
+    'recorrido — isso não diz de que lado eles estavam na ação original';
   const sugestoesHistorico = useQuery({
     queryKey: ['sugestao-advogado', filiadoSelecionado],
     queryFn: () => sugerirAdvogado(filiadoSelecionado as string),
@@ -335,7 +349,7 @@ export function ImportarProcessoDialog({
     if (!open) return;
     if (!partesIniciais?.length) {
       // Abrir a mão (sem vir da fila) não pode herdar a ambiguidade da última.
-      setNosDoisPolos([]);
+      setSemLado([]);
       return;
     }
 
@@ -388,11 +402,11 @@ export function ImportarProcessoDialog({
 
     setPoloAtivo(semAmbiguas(nosAtivos));
     setReus(semAmbiguas(nosPassivos));
-    setNosDoisPolos(
+    setSemLado(
       [...ambos]
         .map((k) => nosAtivos.find((n) => chave(n) === k))
         .filter(Boolean)
-        .map((nome) => paraParte(nome as string)),
+        .map((nome) => ({ parte: paraParte(nome as string), porque: PORQUE_DOIS_POLOS })),
     );
   }, [open, partesIniciais]);
 
@@ -576,6 +590,99 @@ export function ImportarProcessoDialog({
     return () => { cancelado = true; clearTimeout(t); };
   }, [numeroDigitado, open, setValue, consultaImediata]);
 
+  /*
+    ============================================================================
+    E QUEM ESTÁ DO OUTRO LADO? — a pergunta que a tela não fazia.
+    ============================================================================
+
+    O DataJud NÃO DEVOLVE PARTES (verificado em quatro tribunais), e é só ele
+    que esta tela consultava. Por isso "Polo ativo — quem pede" abria em branco
+    em todo cadastro feito à mão, e nas ações vindas da fila do Diário abria
+    com o próprio sindicato e mais nada: das 42 sugestões, ONZE tinham um lado
+    só, e em dez delas esse lado era nós mesmos.
+
+    O Diário sabe. Das 2.537 publicações do acervo, 2.354 (93%) nomeiam os dois
+    lados em `destinatarios`. A consulta é UMA página, roda em paralelo com a
+    do DataJud e não atrasa nada: se o Diário não responder em 15s, a API volta
+    com `consultou: false` e a tela segue como sempre foi.
+
+    O QUE ENTRA SOZINHO e o que pergunta:
+      · parte com lado que o servidor assina ....... entra, marcada "Como o
+        Diário publicou", com o X do lado para tirar;
+      · lado que vem de ato de RECURSO ............. vai para a faixa âmbar,
+        que pede um clique e explica o porquê;
+      · nome que o cabeçalho do ato cita ........... continua sendo citação,
+        nunca preenchimento (ver `CitacaoDoCabecalho`).
+
+    E NUNCA SOBRESCREVE: `acrescentarNoPolo` usa `jaEstaNaLista`, então o que a
+    pessoa já escolheu fica, e o lado que ela já preencheu não recebe nada.
+  */
+  const [diario, setDiario] = useState<PartesNoDiario | null>(null);
+  const [consultandoDiario, setConsultandoDiario] = useState(false);
+
+  /*
+    SEM MEMÓRIA DO ÚLTIMO NÚMERO, de propósito.
+
+    A primeira versão guardava o NPU já consultado num ref para não repetir a
+    chamada — e aí fechar e reabrir o mesmo processo abria a ficha em branco,
+    porque o ref sobrevive ao fechamento e o estado não. A consulta é barata
+    (lê do acervo quando já temos a publicação) e o debounce já segura a
+    digitação; repetir uma vez ao reabrir é mais barato que uma ficha vazia.
+  */
+  useEffect(() => {
+    const digitos = (numeroDigitado ?? '').replace(/\D/g, '');
+    if (!open || digitos.length !== 20) {
+      setDiario(null);
+      setConsultandoDiario(false);
+      return;
+    }
+    let cancelado = false;
+    setConsultandoDiario(true);
+    const t = setTimeout(async () => {
+      try {
+        const r = await consultarPartesNoDiario(digitos);
+        if (cancelado) return;
+        setDiario(r);
+
+        for (const x of r.partes) {
+          if (x.polo !== 'ATIVO' && x.polo !== 'PASSIVO') continue;
+          const parte: ParteEditavel = ehOSindicato(x.nome, tenant.sigla)
+            ? { tipo: 'INSTITUCIONAL', nome: tenant.nome, detalhe: 'O próprio sindicato' }
+            : { tipo: 'AVULSA', nome: x.nome, detalhe: 'Como o Diário publicou' };
+          acrescentarNoPolo(x.polo, parte);
+        }
+
+        /*
+          A DÚVIDA SE SOMA À QUE JÁ ESTAVA NA FAIXA, sem repetir nome: a fila do
+          Diário pode ter trazido a mesma parte como ambígua, e duas linhas
+          iguais pedindo a mesma decisão é o jeito certo de ninguém decidir.
+        */
+        if (r.duvida.length) {
+          setSemLado((atual) => {
+            const tem = new Set(atual.map((x) => normalizarNome(x.parte.nome)));
+            const novas = r.duvida
+              .filter((d) => d.nome && !tem.has(normalizarNome(d.nome)))
+              .map((d) => ({
+                parte: (ehOSindicato(d.nome, tenant.sigla)
+                  ? { tipo: 'INSTITUCIONAL', nome: tenant.nome, detalhe: 'O próprio sindicato' }
+                  : { tipo: 'AVULSA', nome: d.nome, detalhe: 'Citada no ato' }) as ParteEditavel,
+                porque: d.porque,
+              }));
+            return novas.length ? [...atual, ...novas] : atual;
+          });
+        }
+      } catch {
+        // Silencioso de propósito: o cadastro nunca dependeu disto, e um toast
+        // de erro aqui faria a pessoa achar que o formulário quebrou.
+        if (!cancelado) setDiario(null);
+      } finally {
+        if (!cancelado) setConsultandoDiario(false);
+      }
+    }, 600);
+    return () => { cancelado = true; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [numeroDigitado, open]);
+
   /**
    * Traduz a relação para o contrato da API — e manda os DOIS formatos.
    *
@@ -661,7 +768,7 @@ export function ImportarProcessoDialog({
   function resolverAmbigua(parte: ParteEditavel, lado: 'A' | 'P') {
     const por = lado === 'A' ? setPoloAtivo : setReus;
     por((atual) => (jaEstaNaLista(atual, parte) ? atual : [...atual, parte]));
-    setNosDoisPolos((atual) => atual.filter((x) => x.nome !== parte.nome));
+    setSemLado((atual) => atual.filter((x) => x.parte.nome !== parte.nome));
   }
 
   const sindicatoNoPolo = poloAtivo.some((x) => x.tipo === 'INSTITUCIONAL');
@@ -717,8 +824,17 @@ export function ImportarProcessoDialog({
     const jaSomosDeAlgumLado =
       poloAtivo.some((x) => x.tipo === 'INSTITUCIONAL') || reus.some((x) => x.tipo === 'INSTITUCIONAL');
 
+    /*
+      DUAS FONTES PARA A MESMA CITAÇÃO, na ordem em que chegam.
+
+      `cabecalhoDoAto` é o que a fila do Diário guardou quando a ação foi
+      detectada; `diario.cabecalho` é o que a consulta de agora leu. A fila só
+      tem o cabeçalho das ações vistas depois de 31/10/2026 — nas 42 que já
+      estavam lá ele é nulo —, e quem digita um NPU à mão nunca passa pela
+      fila. Sem a segunda fonte, a citação existia e quase nunca aparecia.
+    */
     const porPolo = new Map<'A' | 'P', { nome: string; rotulo: string | null }>();
-    for (const x of cabecalhoDoAto ?? []) {
+    for (const x of [...(cabecalhoDoAto ?? []), ...(diario?.cabecalho ?? [])]) {
       const polo = String(x?.polo ?? '').trim().toUpperCase();
       const nome = String(x?.nome ?? '').trim();
       if ((polo !== 'A' && polo !== 'P') || !nome || porPolo.has(polo)) continue;
@@ -726,7 +842,7 @@ export function ImportarProcessoDialog({
       porPolo.set(polo, { nome, rotulo: x?.rotulo ? String(x.rotulo) : null });
     }
     return porPolo;
-  }, [cabecalhoDoAto, poloAtivo, reus]);
+  }, [cabecalhoDoAto, diario, poloAtivo, reus]);
 
   /**
    * O texto citado vira parte do mesmo jeito que o nome do Diário vira.
@@ -822,8 +938,23 @@ export function ImportarProcessoDialog({
           nunca mostrou o defeito no desktop.
         */}
         <div className="grid flex-1 grid-cols-1 gap-x-6 gap-y-4 overflow-y-auto p-5 md:grid-cols-2 md:items-start">
-          {/* ================= COLUNA 1 — IDENTIFICAÇÃO E ATRIBUIÇÃO ================= */}
-          <div className="space-y-4">
+          {/*
+            ================= COLUNA 1A — O NÚMERO E O QUE O CNJ RESPONDEU =======
+
+            NO CELULAR, AS PARTES VÊM ANTES DOS CAMPOS OPCIONAIS.
+
+            Empilhado, o formulário era número → tribunal → advogado →
+            etiquetas → partes: "quem pede" e "contra quem" só apareciam depois
+            de três campos que a própria tela chama de "(opcional)". A pergunta
+            que leva alguém a abrir esta tela é justamente de quem é o processo.
+
+            Por isso a coluna 1 está partida em duas: `order` resolve no
+            celular e a posição explícita (`md:col-start`/`md:row-start`)
+            mantém as duas colunas intactas no desktop. A ordem de TABULAÇÃO
+            continua a do DOM — tabular um formulário longo no celular é raro,
+            e ler sem rolar não é.
+          */}
+          <div className="order-1 space-y-4 md:order-none md:col-start-1 md:row-start-1">
           {/* NPU com máscara automática */}
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Número do Processo (NPU) *</label>
@@ -1007,6 +1138,11 @@ export function ImportarProcessoDialog({
             )
           )}
 
+          </div>
+
+          {/* ================= COLUNA 1B — O QUE É OPCIONAL ================= */}
+          <div className="order-3 space-y-4 md:order-none md:col-start-1 md:row-start-2">
+
           {/* Advogado responsável (opcional) — com sugestão facultativa */}
           <div className="space-y-1.5">
             <label className="flex items-center gap-1.5 text-sm font-medium">
@@ -1128,7 +1264,46 @@ export function ImportarProcessoDialog({
           </div>
 
           {/* ================= COLUNA 2 — PARTES DO PROCESSO ================= */}
-          <div className="space-y-4">
+          <div className="order-2 space-y-4 md:order-none md:col-start-2 md:row-start-1 md:row-span-2">
+
+          {/*
+            DE ONDE VIERAM ESTES NOMES — uma linha, e só quando há o que dizer.
+
+            Nome que aparece sozinho no formulário precisa de procedência: sem
+            ela, quem abre a tela não sabe se o sistema leu em algum lugar ou
+            se alguém digitou antes. E quando o Diário não tem nada, dizer isso
+            é o que impede a pessoa de achar que a tela falhou — o branco sem
+            explicação é o que vira chamado.
+
+            Fora esses dois casos, a linha não existe. Bloco com frase cinza e
+            nada dentro ocupa a dobra e não responde nada.
+          */}
+          {consultandoDiario && (
+            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" /> Procurando as partes no Diário…
+            </p>
+          )}
+          {!consultandoDiario && diario?.consultou && diario.publicacoes > 0 && (
+            <p className="flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
+              <Newspaper className="mt-px h-3 w-3 shrink-0" />
+              <span>
+                Partes lidas do Diário — {diario.publicacoes}{' '}
+                {diario.publicacoes === 1 ? 'publicação' : 'publicações'}
+                {diario.ultimaEm ? `, a última em ${formatDataPura(diario.ultimaEm)}` : ''}.
+                Confira e troque por um cadastro quando houver.
+              </span>
+            </p>
+          )}
+          {!consultandoDiario && diario && !diario.publicacoes && poloAtivo.length === 0 && reus.length === 0 && (
+            <p className="flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
+              <Newspaper className="mt-px h-3 w-3 shrink-0" />
+              <span>
+                {diario.consultou
+                  ? 'Este processo ainda não apareceu no Diário, então não há partes para ler. Preencha abaixo.'
+                  : `Não deu para consultar o Diário agora — ${diario.porque ?? 'tente de novo em alguns minutos'}`}
+              </span>
+            </p>
+          )}
 
           {/*
             RECURSO: A MESMA PARTE NOS DOIS LADOS.
@@ -1137,53 +1312,63 @@ export function ImportarProcessoDialog({
             tomada primeiro, e escondê-la abaixo faria a pessoa montar os polos
             e só depois descobrir que faltava alguém.
           */}
-          {nosDoisPolos.length > 0 && (
+          {semLado.length > 0 && (
             <div className="space-y-2 rounded-xl border border-amber-300 bg-amber-50/70 p-3 dark:border-amber-900/60 dark:bg-amber-950/20">
               <p className="flex items-start gap-1.5 text-sm font-medium text-amber-900 dark:text-amber-200">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>
-                  {nosDoisPolos.length === 1
-                    ? 'O Diário lista uma parte nos dois polos'
-                    : `O Diário lista ${nosDoisPolos.length} partes nos dois polos`}
+                  {semLado.length === 1
+                    ? 'O Diário cita uma parte sem dizer de que lado ela está'
+                    : `O Diário cita ${semLado.length} partes sem dizer de que lado elas estão`}
                 </span>
               </p>
-              <p className="text-[11px] leading-snug text-amber-900/80 dark:text-amber-200/80">
-                É recurso: os dois lados recorreram, então o tribunal marca cada
-                um como recorrente <strong>e</strong> recorrido. Isso não diz de
-                que lado eles estavam na ação original — por isso não preenchi
-                sozinho. Escolha o lado de cada um:
-              </p>
-              <ul className="space-y-1.5">
-                {nosDoisPolos.map((parte) => (
-                  <li
-                    key={parte.nome}
-                    className="flex flex-col gap-1.5 rounded-md border border-amber-200 bg-background p-2 dark:border-amber-900/50 sm:flex-row sm:items-center sm:gap-2"
-                  >
-                    <span className="min-w-0 flex-1 truncate text-xs" title={parte.nome}>
-                      {parte.nome}
-                      {parte.tipo === 'INSTITUCIONAL' && (
-                        <span className="ml-1 text-muted-foreground">· o próprio sindicato</span>
-                      )}
-                    </span>
-                    <span className="flex shrink-0 gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => resolverAmbigua(parte, 'A')}
-                        className="h-8 flex-1 rounded-md border border-input px-2.5 text-xs font-medium transition hover:bg-muted sm:flex-none"
+              {/*
+                A FRASE VEM DO MOTIVO, E CADA MOTIVO APARECE UMA VEZ SÓ.
+
+                São dois motivos possíveis e eles não se misturam numa
+                explicação genérica: "nos dois polos" e "o lado é o do recurso"
+                pedem leituras diferentes de quem vai clicar. Agrupar mantém a
+                faixa curta quando o motivo é o mesmo para seis nomes — que é o
+                caso comum.
+              */}
+              {[...new Set(semLado.map((x) => x.porque))].map((porque) => (
+                <div key={porque} className="space-y-1.5">
+                  <p className="text-[11px] leading-snug text-amber-900/80 dark:text-amber-200/80">
+                    {porque}. Por isso não preenchi sozinho — escolha o lado:
+                  </p>
+                  <ul className="space-y-1.5">
+                    {semLado.filter((x) => x.porque === porque).map(({ parte }) => (
+                      <li
+                        key={parte.nome}
+                        className="flex flex-col gap-1.5 rounded-md border border-amber-200 bg-background p-2 dark:border-amber-900/50 sm:flex-row sm:items-center sm:gap-2"
                       >
-                        Polo ativo
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => resolverAmbigua(parte, 'P')}
-                        className="h-8 flex-1 rounded-md border border-input px-2.5 text-xs font-medium transition hover:bg-muted sm:flex-none"
-                      >
-                        Polo passivo
-                      </button>
-                    </span>
-                  </li>
-                ))}
-              </ul>
+                        <span className="min-w-0 flex-1 truncate text-xs" title={parte.nome}>
+                          {parte.nome}
+                          {parte.tipo === 'INSTITUCIONAL' && (
+                            <span className="ml-1 text-muted-foreground">· o próprio sindicato</span>
+                          )}
+                        </span>
+                        <span className="flex shrink-0 gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => resolverAmbigua(parte, 'A')}
+                            className="h-8 flex-1 rounded-md border border-input px-2.5 text-xs font-medium transition hover:bg-muted sm:flex-none"
+                          >
+                            Polo ativo
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => resolverAmbigua(parte, 'P')}
+                            className="h-8 flex-1 rounded-md border border-input px-2.5 text-xs font-medium transition hover:bg-muted sm:flex-none"
+                          >
+                            Polo passivo
+                          </button>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
             </div>
           )}
 
@@ -1410,7 +1595,16 @@ export function ImportarProcessoDialog({
                 },
               ]}
               ajuda={
-                veioDoDiario ? (
+                /*
+                  A FRASE "O DATAJUD NÃO DIVULGA AS PARTES" FICOU PELA METADE.
+
+                  Continua verdadeira sobre o DataJud e passou a ser enganosa na
+                  tela: o Diário é consultado aqui agora, e quando ele responde
+                  os nomes estão à vista enquanto o texto logo abaixo diz que
+                  este dado é da casa. Ela só aparece quando NADA veio — que é
+                  quando ela explica alguma coisa.
+                */
+                veioDoDiario || (diario?.publicacoes ?? 0) > 0 ? (
                   <>
                     Estes nomes vieram do <strong>Diário</strong>, como o tribunal os
                     escreveu. Trocar por um cadastro mantém todos os processos contra a
@@ -1418,9 +1612,9 @@ export function ImportarProcessoDialog({
                   </>
                 ) : (
                   <>
-                    A API Pública do DataJud <strong>não divulga as partes</strong> do processo —
-                    este dado é da casa. Reaproveitar um cadastro mantém todos os processos
-                    contra a mesma empresa juntos.
+                    Nem o DataJud nem o Diário deram as partes deste processo —
+                    <strong> aqui o dado é da casa</strong>. Reaproveitar um cadastro mantém
+                    todos os processos contra a mesma empresa juntos.
                   </>
                 )
               }
@@ -1527,13 +1721,13 @@ export function ImportarProcessoDialog({
             erro (dá para completar depois, na aba Partes), mas não pode ser
             silencioso: a pessoa clica achando que levou tudo.
           */}
-          {nosDoisPolos.length > 0 ? (
+          {semLado.length > 0 ? (
             <p className="flex items-start gap-1.5 text-[11px] leading-snug text-amber-800 dark:text-amber-300">
               <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
               <span>
-                {nosDoisPolos.length === 1
+                {semLado.length === 1
                   ? '1 parte ainda sem lado escolhido — vai ficar de fora'
-                  : `${nosDoisPolos.length} partes ainda sem lado escolhido — vão ficar de fora`}
+                  : `${semLado.length} partes ainda sem lado escolhido — vão ficar de fora`}
                 . Dá para completar depois, na aba Partes.
               </span>
             </p>

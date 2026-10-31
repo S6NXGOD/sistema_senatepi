@@ -10,7 +10,11 @@ const ler = (
   pubs: Parameters<typeof lerPartesDoAto>[0],
   ficha: Parameters<typeof lerPartesDoAto>[1],
   dispensadas: Set<string> = new Set(),
-) => lerPartesDoAto(pubs, ficha, dispensadas, SIGLA);
+  daCasa: string[] = EQUIPE,
+) => lerPartesDoAto(pubs, ficha, dispensadas, SIGLA, daCasa);
+
+/** Os advogados do escritório, como o cadastro os guarda. */
+const EQUIPE = ['Carlos Henrique de Alencar Vieira', 'Murilo Marcones', 'Morgana Nualla'];
 
 const SERVICO = readFileSync(join(__dirname, 'partes-do-diario.service.ts'), 'utf8');
 const CRON = readFileSync(join(__dirname, 'djen-sync.service.ts'), 'utf8');
@@ -23,10 +27,25 @@ const MIGRACAO = readFileSync(
 const NOS = 'SINDICATO DOS ENFERMEIROS, AUXILIARES E TECNICOS EM ENFERMAGEM DO ESTADO DO PIAUI - SENATEPI';
 const NOS_CADASTRO = 'SINDICATO DOS ENFERMEIROS E TÉCNICOS DE ENFERMAGEM DO ESTADO DO PIAUÍ';
 
-const pub = (destinatarios: { nome: string; polo: string }[], advogados: { nome: string }[] = []) => ({
-  destinatarios,
-  advogados,
-});
+/**
+ * Um ato da AÇÃO, em primeiro grau — o caso comum e o único em que o lado
+ * publicado posiciona alguém. Quem quiser testar recurso diz a classe.
+ */
+const pub = (
+  destinatarios: { nome: string; polo: string }[],
+  advogados: { nome: string }[] = [],
+  classeENumero: { nomeClasse: string | null; numeroProcesso: string | null } = {
+    nomeClasse: 'AÇÃO TRABALHISTA - RITO ORDINÁRIO',
+    numeroProcesso: '00009785920225220004',
+  },
+) => ({ destinatarios, advogados, ...classeENumero });
+
+/** O mesmo ato, publicado como RECURSO dentro do número da ação de origem. */
+const pubDeRecurso = (destinatarios: { nome: string; polo: string }[], advogados: { nome: string }[] = []) =>
+  pub(destinatarios, advogados, {
+    nomeClasse: 'RECURSO ORDINÁRIO TRABALHISTA',
+    numeroProcesso: '00009785920225220004',
+  });
 const naFicha = (linhas: [string, string, boolean?][]) =>
   linhas.map(([nome, polo, institucional]) => ({
     nome,
@@ -86,11 +105,16 @@ describe('a parte que o Diário nomeia entra na ficha', () => {
   });
 
   /**
-   * O POLO DE UM RECURSO NÃO É O DA AÇÃO — caso real do 0001095-45.2025.5.22.0004.
+   * O DIÁRIO E A FICHA DISCORDAM NUM ATO DA AÇÃO — e aí um dos dois está errado.
    *
-   * O Diário põe a EBSERH como `A` e o sindicato como `P` porque quem recorreu
-   * foi a empresa; na ação, o sindicato é o autor. Posicionar MARCOS pelo polo
-   * do ato o colocaria no lado errado da ficha para sempre.
+   * A bússola nasceu do 0001095-45.2025.5.22.0004, em que a discordância vinha
+   * do recurso; esse caminho hoje é barrado antes, por `lado-do-ato.util`. O
+   * que sobra para a bússola é a contradição de verdade, e ela existe: nas duas
+   * consignações em pagamento do acervo é a FICHA que está errada — ela põe o
+   * sindicato como autor de uma ação que o município moveu contra ele.
+   *
+   * Nos dois casos a conduta é a mesma: ninguém é posicionado, e a frase diz
+   * onde resolver.
    */
   it('quando o lado do sindicato discorda da ficha, ninguém é posicionado', () => {
     const r = ler(
@@ -110,10 +134,13 @@ describe('a parte que o Diário nomeia entra na ficha', () => {
     expect(r.repor).toEqual([]);
     expect(r.duvida).toHaveLength(1);
     expect(r.duvida[0].nome).toBe('MARCOS DENHILSON BENVINDO ITALIANO');
-    expect(r.duvida[0].porque).toContain('RECURSO');
     // A frase tem de fazer sentido em voz alta: dois lados DIFERENTES.
     expect(r.duvida[0].porque).toContain('sindicato no polo passivo');
     expect(r.duvida[0].porque).toContain('a ficha no ativo');
+    // E tem de mandar a pessoa ao lugar onde se resolve, não a um recurso
+    // inexistente — era o que dizia antes de o recurso sair desta conta.
+    expect(r.duvida[0].porque).toContain('aba Partes');
+    expect(r.duvida[0].porque).not.toContain('RECURSO');
   });
 
   /**
@@ -181,7 +208,14 @@ describe('a parte que o Diário nomeia entra na ficha', () => {
 
   it('destinatário sem o campo polo também vira pergunta', () => {
     const r = ler(
-      [{ destinatarios: [{ nome: 'ALGUEM SEM LADO' }], advogados: [] }],
+      [
+        {
+          destinatarios: [{ nome: 'ALGUEM SEM LADO' }],
+          advogados: [],
+          nomeClasse: 'AÇÃO TRABALHISTA - RITO ORDINÁRIO',
+          numeroProcesso: '00009785920225220004',
+        },
+      ],
       naFicha([[NOS_CADASTRO, 'ATIVO', true]]),
     );
     expect(r.repor).toEqual([]);
@@ -313,5 +347,117 @@ describe('a migração é segura na janela de troca', () => {
     expect(MIGRACAO).not.toContain('DROP ');
     expect(MIGRACAO).not.toContain('RENAME ');
     expect(MIGRACAO).not.toMatch(/ADD COLUMN[^;]+NOT NULL(?![^;]*DEFAULT)/);
+  });
+});
+
+/**
+ * O LADO DO RECURSO NÃO POSICIONA NINGUÉM NA AÇÃO.
+ *
+ * Os dois casos abaixo são da produção (31/10/2026) e são simétricos: num
+ * deles a régua IMPEDE um erro, no outro ela DESTRAVA o acerto. É o par que
+ * importa — uma régua que só sabe desconfiar custou 73 partes que o sistema
+ * conhecia e se recusava a escrever.
+ */
+describe('o lado do recurso', () => {
+  const RECLAMACAO = '00014043120235220006';
+  const DA_ACAO = { nomeClasse: 'AÇÃO TRABALHISTA - RITO ORDINÁRIO', numeroProcesso: RECLAMACAO };
+  const DO_RECURSO = { nomeClasse: 'RECURSO ORDINÁRIO TRABALHISTA', numeroProcesso: RECLAMACAO };
+
+  it('ato só de recurso: o nome entra na dúvida, nunca na ficha', () => {
+    const r = ler(
+      [pub([{ nome: NOS, polo: 'P' }, { nome: 'CLINICA SANTA FE LTDA', polo: 'A' }], [], DO_RECURSO)],
+      naFicha([[NOS_CADASTRO, 'ATIVO', true]]),
+    );
+    expect(r.repor).toEqual([]);
+    expect(r.duvida.map((x) => x.nome)).toEqual(['CLINICA SANTA FE LTDA']);
+    expect(r.duvida[0].polo).toBeNull();
+    expect(r.duvida[0].porque).toContain('recurso');
+  });
+
+  /*
+    E ESTE É O GANHO. A ficha diz que somos autores; o ato da ação concorda; o
+    recurso inverte os dois. Antes, o recurso envenenava a bússola — o
+    sindicato aparecia nos dois lados, `polosDivergem` disparava e a clínica
+    ficava para sempre na fila de dúvida. Agora o recurso é ignorado para
+    efeito de lado e a ré entra onde sempre esteve.
+  */
+  it('mistura de ação e recurso: o lado sai do ato da AÇÃO', () => {
+    const r = ler(
+      [
+        pub([{ nome: NOS, polo: 'P' }, { nome: 'CLINICA SANTA FE LTDA', polo: 'A' }], [], DO_RECURSO),
+        pub([{ nome: NOS, polo: 'A' }, { nome: 'CLINICA SANTA FE LTDA', polo: 'P' }], [], DA_ACAO),
+      ],
+      naFicha([[NOS_CADASTRO, 'ATIVO', true]]),
+    );
+    expect(r.repor).toEqual([{ nome: 'CLINICA SANTA FE LTDA', polo: 'PASSIVO' }]);
+    expect(r.duvida).toEqual([]);
+  });
+
+  it('sem o sindicato em nenhum ato da ação, o lado do ato da ação ainda vale', () => {
+    const r = ler(
+      [pub([{ nome: 'HAPVIDA ASSISTENCIA MEDICA LTDA', polo: 'P' }], [], DA_ACAO)],
+      naFicha([['MARIA DAS GRACAS', 'ATIVO']]),
+    );
+    expect(r.repor).toEqual([{ nome: 'HAPVIDA ASSISTENCIA MEDICA LTDA', polo: 'PASSIVO' }]);
+  });
+
+  /*
+    Um recurso AUTUADO NO TRIBUNAL é o próprio registro: ali a posição recursal
+    é a posição certa, e recusá-la deixaria em branco a única ficha que tem o
+    dado. Medido: 10 de 10 acertos.
+  */
+  it('recurso com número próprio de 2º grau posiciona normalmente', () => {
+    const r = ler(
+      [
+        pub([{ nome: 'MUNICIPIO DE COCAL', polo: 'A' }], [], {
+          nomeClasse: 'AGRAVO DE INSTRUMENTO',
+          numeroProcesso: '07562315720258180000',
+        }),
+      ],
+      naFicha([[NOS_CADASTRO, 'PASSIVO', true]]),
+    );
+    expect(r.repor).toEqual([{ nome: 'MUNICIPIO DE COCAL', polo: 'ATIVO' }]);
+  });
+});
+
+/**
+ * ADVOGADO DA CASA NÃO É PARTE — nem quando o ato não traz lista de advogados.
+ *
+ * Produção, 31/10/2026: o Dr. Carlos Henrique, advogado PRINCIPAL de cinco
+ * processos, estava gravado como AUTOR nos cinco, `origem = 'DJEN'`. A recusa
+ * antiga comparava o destinatário com os advogados DAQUELE ato, e o TJPI
+ * publica aquelas intimações sem lista de advogados e com o nome do advogado
+ * seguido de "REGISTRADO(A) CIVILMENTE COMO ...".
+ */
+describe('advogado da casa', () => {
+  const COM_SUFIXO =
+    'CARLOS HENRIQUE DE ALENCAR VIEIRA REGISTRADO(A) CIVILMENTE COMO CARLOS HENRIQUE DE ALENCAR VIEIRA';
+
+  it('o nome com sufixo do tribunal não vira autor', () => {
+    const r = ler(
+      [pub([{ nome: COM_SUFIXO, polo: 'A' }, { nome: 'MUNICIPIO DE ELESBAO VELOSO', polo: 'P' }])],
+      naFicha([[NOS_CADASTRO, 'ATIVO', true]]),
+    );
+    expect(r.repor).toEqual([{ nome: 'MUNICIPIO DE ELESBAO VELOSO', polo: 'PASSIVO' }]);
+    expect(r.duvida).toEqual([]);
+  });
+
+  it('vale mesmo com o ato sem nenhum advogado listado', () => {
+    const r = ler([pub([{ nome: 'MURILO MARCONES ALVES VELOSO', polo: 'A' }], [])], naFicha([]));
+    expect(r.repor).toEqual([]);
+  });
+
+  /*
+    E A TRAVA DO TAMANHO. Comparação por continência com chave curta casaria
+    dentro de qualquer razão social; aqui a casa tem um nome curto de propósito.
+  */
+  it('nome curto no cadastro não filtra ninguém', () => {
+    const r = ler(
+      [pub([{ nome: 'ANA SOUZA SERVICOS MEDICOS LTDA', polo: 'P' }])],
+      naFicha([]),
+      new Set(),
+      ['Ana'],
+    );
+    expect(r.repor).toEqual([{ nome: 'ANA SOUZA SERVICOS MEDICOS LTDA', polo: 'PASSIVO' }]);
   });
 });

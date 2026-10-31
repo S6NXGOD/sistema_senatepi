@@ -64,7 +64,7 @@ function montar(publicacoes: Pub[], compromissos: Record<string, string> = {}) {
     },
   };
   const correlacao = { criarAtividadeDaProposta: jest.fn(async () => 'comp-novo') };
-  const ctrl = new DjenController(prisma as never, {} as never, {} as never, {} as never, {} as never, correlacao as never);
+  const ctrl = new DjenController(prisma as never, {} as never, {} as never, {} as never, {} as never, correlacao as never, {} as never);
   const porId = (id: string) => publicacoes.find((p) => p.id === id)!;
   return { ctrl, prisma, correlacao, porId };
 }
@@ -137,7 +137,7 @@ describe('POST /djen/publicacoes/:id/tarefa com a cópia do mesmo ato', () => {
         }),
       },
     };
-    const ctrl = new DjenController(comTarefas as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+    const ctrl = new DjenController(comTarefas as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
     await expect(ctrl.umaPublicacao('reclamada')).resolves.toMatchObject({
       id: 'reclamada',
       tarefaDoMesmoAto: { id: 'comp-1', status: 'PENDENTE' },

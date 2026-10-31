@@ -146,7 +146,7 @@ describe('a varredura manual do DJEN respeita a trava do robô', () => {
   const montar = (vigentes: string[] = []) => {
     const banco = bancoDasTravas(vigentes);
     const sync = { varrer: jest.fn(async (..._args: unknown[]) => ({ ingeridas: 3 })) };
-    const ctrl = new DjenController(banco as never, {} as never, sync as never, {} as never, {} as never, {} as never);
+    const ctrl = new DjenController(banco as never, {} as never, sync as never, {} as never, {} as never, {} as never, {} as never);
     return { banco, sync, ctrl };
   };
 

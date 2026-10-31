@@ -258,7 +258,7 @@ describe('o diálogo de importar diante de um recurso', () => {
     expect(DIALOGO).toContain('const ambos = new Set(');
     expect(DIALOGO).toContain('.filter((n) => !ambos.has(chave(n)))');
     expect(DIALOGO).toContain('setPoloAtivo(semAmbiguas(nosAtivos));');
-    expect(DIALOGO).toContain('setNosDoisPolos(');
+    expect(DIALOGO).toContain('setSemLado(');
   });
 
   /**
@@ -288,7 +288,7 @@ describe('o diálogo de importar diante de um recurso', () => {
 
   /** Abrir o diálogo na mão não pode herdar a ambiguidade do último aberto. */
   it('limpa a ambiguidade quando não vem da fila', () => {
-    expect(DIALOGO).toContain('setNosDoisPolos([]);');
+    expect(DIALOGO).toContain('setSemLado([]);');
   });
 });
 

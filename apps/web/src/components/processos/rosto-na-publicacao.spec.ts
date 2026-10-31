@@ -278,12 +278,82 @@ describe('a citação do cabeçalho do ato', () => {
     expect(inicio).toBeGreaterThan(0);
     // A lista de dependências é o `}, [...]);` que fecha o memo.
     const memo = DIALOGO.slice(inicio, DIALOGO.indexOf(']);', inicio) + 3);
-    expect(memo).toContain('}, [cabecalhoDoAto, poloAtivo, reus]);');
+    expect(memo).toContain('}, [cabecalhoDoAto, diario, poloAtivo, reus]);');
   });
 
   /** O nome citado nunca é gravado sozinho: entra só quando alguém clica. */
   it('a citação é texto do tribunal, não cadastro automático', () => {
     expect(DIALOGO).toContain('Usar este texto');
     expect(DIALOGO).toContain("detalhe: 'Citado no cabeçalho do ato'");
+  });
+});
+
+/**
+ * QUEM ESTÁ DOS DOIS LADOS, NA HORA DE CADASTRAR.
+ *
+ * O DataJud não devolve partes, e era só ele que esta tela consultava: o polo
+ * ativo abria em branco em todo cadastro à mão, e nas ações vindas da fila
+ * abria com o sindicato e mais nada (11 das 42 sugestões tinham um lado só, e
+ * em 10 delas esse lado éramos nós).
+ */
+describe('as partes vêm do Diário na hora do cadastro', () => {
+  const DIALOGO = lerCodigo('importar-processo-dialog.tsx');
+
+  it('consulta o Diário em paralelo, sem bloquear o DataJud', () => {
+    expect(DIALOGO).toContain('consultarPartesNoDiario(digitos)');
+    // Efeito próprio: o do DataJud continua intacto e um não espera o outro.
+    expect(DIALOGO).toContain('const [diario, setDiario] = useState<PartesNoDiario | null>(null)');
+  });
+
+  /** Nome que entra sozinho no formulário precisa dizer de onde veio. */
+  it('a parte preenchida diz que veio do Diário', () => {
+    expect(DIALOGO).toContain("detalhe: 'Como o Diário publicou'");
+    expect(DIALOGO).toContain('Partes lidas do Diário');
+  });
+
+  /** O sindicato tem tipo próprio — repô-lo como avulsa cria uma segunda parte. */
+  it('o sindicato entra como institucional, não como texto solto', () => {
+    const efeito = DIALOGO.slice(DIALOGO.indexOf('consultarPartesNoDiario(digitos)'));
+    expect(efeito.slice(0, 1200)).toContain("ehOSindicato(x.nome, tenant.sigla)");
+    expect(efeito.slice(0, 1200)).toContain("{ tipo: 'INSTITUCIONAL', nome: tenant.nome");
+  });
+
+  /** Nunca sobrescreve o que a pessoa escolheu. */
+  it('acrescenta sem repetir e sem apagar escolha', () => {
+    expect(DIALOGO).toContain('acrescentarNoPolo(x.polo, parte)');
+    const fn = DIALOGO.slice(DIALOGO.indexOf('function acrescentarNoPolo'));
+    expect(fn.slice(0, 400)).toContain('jaEstaNaLista(atual, nova) ? atual : [...atual, nova]');
+  });
+
+  /**
+   * O lado que vem de RECURSO não preenche nada: vai para a faixa que pergunta.
+   * É a mesma faixa do "parte nos dois polos" — duas caixas âmbar empilhadas na
+   * mesma dobra ensinam a pessoa a não ler aviso.
+   */
+  it('a dúvida do servidor entra na faixa que já existia', () => {
+    expect(DIALOGO).toContain('setSemLado((atual) =>');
+    expect(DIALOGO).toContain('porque: d.porque');
+    expect(DIALOGO).toContain('[...new Set(semLado.map((x) => x.porque))]');
+  });
+
+  it('a dúvida não duplica nome que já estava na faixa', () => {
+    const bloco = DIALOGO.slice(DIALOGO.indexOf('setSemLado((atual) =>'));
+    expect(bloco.slice(0, 700)).toContain('new Set(atual.map((x) => normalizarNome(x.parte.nome)))');
+  });
+
+  /**
+   * Falha do Diário não é falha do cadastro: a tela sempre funcionou sem ele.
+   * Um toast de erro aqui faria a pessoa achar que o formulário quebrou.
+   */
+  it('o Diário fora do ar não derruba nem alarma a tela', () => {
+    const efeito = DIALOGO.slice(DIALOGO.indexOf('consultarPartesNoDiario(digitos)'));
+    const ate = efeito.slice(0, efeito.indexOf('}, 600);'));
+    expect(ate).toContain('} catch {');
+    expect(ate).not.toContain('toast.error');
+  });
+
+  /** Dia de calendário formatado com a régua certa — a ingênua anda um dia. */
+  it('a data da última publicação usa formatDataPura', () => {
+    expect(DIALOGO).toContain('formatDataPura(diario.ultimaEm)');
   });
 });

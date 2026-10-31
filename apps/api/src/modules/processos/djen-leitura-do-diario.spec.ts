@@ -436,6 +436,7 @@ describe('quem o robô não enxerga', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
     await expect(ctrl.status()).resolves.toEqual({
       ativo: true,
@@ -486,6 +487,7 @@ describe('quem o robô não enxerga', () => {
       {} as never,
       { integracaoAtiva: false, bloqueadoNaOrigem: false, janelaDias: 3 } as never,
       svc,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

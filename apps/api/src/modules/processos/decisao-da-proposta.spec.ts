@@ -173,7 +173,7 @@ describe('a tarefa criada pela gaveta da publicação', () => {
       },
     };
     const correlacao = { criarAtividadeDaProposta: jest.fn(async (..._args: unknown[]) => 'comp-9') };
-    const ctrl = new DjenController(prisma as never, {} as never, {} as never, {} as never, {} as never, correlacao as never);
+    const ctrl = new DjenController(prisma as never, {} as never, {} as never, {} as never, {} as never, correlacao as never, {} as never);
     const dados = () => (prisma.comunicacaoDjen.update.mock.calls[0][0] as { data: Record<string, unknown> }).data;
     return { ctrl, prisma, correlacao, dados };
   };

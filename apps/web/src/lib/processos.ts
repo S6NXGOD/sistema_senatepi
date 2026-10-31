@@ -633,6 +633,54 @@ export async function consultarDatajud(numeroCNJ: string, tribunal?: string): Pr
   ).data;
 }
 
+/** Uma parte que o Diário nomeia, com o lado que o sistema assina. */
+export interface PartePeloDiario {
+  nome: string;
+  polo: 'ATIVO' | 'PASSIVO' | 'TERCEIRO';
+}
+
+/** Um nome que o ato cita e cujo lado o sistema NÃO assina — com o porquê. */
+export interface PartePorConfirmar {
+  nome: string;
+  polo: 'ATIVO' | 'PASSIVO' | 'TERCEIRO' | null;
+  porque: string;
+}
+
+/**
+ * O que o Diário sabe sobre as partes de um processo que ainda não existe aqui.
+ *
+ * `consultou: false` NÃO é erro: é "não deu para perguntar agora" (Diário
+ * desligado, cota do CNJ ocupada, ponte fora). A tela de cadastro funciona sem
+ * isto — era assim que ela era —, por isso nada aqui trava o formulário.
+ */
+export interface PartesNoDiario {
+  consultou: boolean;
+  porque: string | null;
+  fonte: 'acervo' | 'diario' | null;
+  partes: PartePeloDiario[];
+  duvida: PartePorConfirmar[];
+  cabecalho: { polo?: string | null; nome?: string | null; rotulo?: string | null }[];
+  advogados: { nome: string; oab: string | null }[];
+  publicacoes: number;
+  ultimaEm: string | null;
+}
+
+/**
+ * Pergunta ao Diário quem está nos dois polos — o que o DataJud não devolve.
+ *
+ * Timeout curto de propósito: a API já desiste em 15s e responde
+ * `consultou: false`. Quem está olhando o formulário não espera mais que isso,
+ * e o cadastro não depende da resposta.
+ */
+export async function consultarPartesNoDiario(numeroCNJ: string): Promise<PartesNoDiario> {
+  return (
+    await api.get('/djen/partes-para-cadastro', {
+      params: { numeroCNJ: numeroCNJ.replace(/\D/g, '') },
+      timeout: 25_000,
+    })
+  ).data;
+}
+
 /**
  * Quem move a ação. As três opções do modal, e nenhuma delas cria cadastro
  * provisório de filiado.

@@ -27,6 +27,7 @@ import { DjenSyncService } from './djen-sync.service';
 import { DjenBuscaService } from './djen-busca.service';
 import { CaixaDePropostasService } from './caixa-de-propostas.service';
 import { CorrelacaoService, mesmoAtoPeloLink } from './correlacao.service';
+import { PartesDoDiarioService } from './partes-do-diario.service';
 
 /**
  * A JANELA DA COLHEITA PELA OAB.
@@ -207,6 +208,7 @@ export class DjenController {
     private readonly busca: DjenBuscaService,
     private readonly caixa: CaixaDePropostasService,
     private readonly correlacao: CorrelacaoService,
+    private readonly partesDoDiario: PartesDoDiarioService,
   ) {}
 
   /*
@@ -575,6 +577,23 @@ export class DjenController {
       });
     }
     return { compromissoId, criada: true };
+  }
+
+  /**
+   * O QUE O DIÁRIO SABE SOBRE AS PARTES — para a tela de cadastrar.
+   *
+   * Rota de QUERY e não de caminho, de propósito: `partes/:npu` conviveria com
+   * `processo/:processoId` e `publicacoes/:id` num controller que já tem seis
+   * rotas de um segmento, e duas rotas iguais no Nest não dão erro — uma
+   * simplesmente some. Aqui não há como colidir.
+   *
+   * Nunca grava nada e nunca derruba a tela: quando o Diário não responde, a
+   * resposta vem com `consultou: false` e a frase do porquê.
+   */
+  @Get('partes-para-cadastro')
+  @ApiOperation({ summary: 'Partes que o Diário nomeia num processo ainda não cadastrado.' })
+  partesParaCadastro(@Query('numeroCNJ') numeroCNJ: string) {
+    return this.partesDoDiario.paraCadastro(numeroCNJ);
   }
 
   /** Publicações de um processo, mais recentes primeiro. */
