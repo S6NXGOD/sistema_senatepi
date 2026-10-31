@@ -128,6 +128,30 @@ const RE_MANIFESTACAO = /(MANIFEST|REPLICA|IMPUGNA|CONTRARRAZOES|CONTRA-RAZOES|C
  */
 const RE_RECURSO = /(ACORDAO|PRAZO RECURSAL|INTERPOR RECURSO|INTERPOSICAO DE RECURSO|RAZOES (DE APELACAO|RECURSAIS)|JUIZO DE ADMISSIBILIDADE|PARA RECORRER|SESSAO DE JULGAMENTO|RESULTADO DO JULGAMENTO|NEGAR PROVIMENTO|DAR PROVIMENTO|CONHECER (E|DO) RECURSO)/;
 
+/**
+ * O ACÓRDÃO QUE SE LIQUIDA NÃO É UM ACÓRDÃO PARA RECORRER.
+ *
+ * `RE_RECURSO` aceita a palavra `ACORDAO` sozinha, e isso está CERTO em 284
+ * das 285 publicações do acervo que dependem só dela: no trabalhista o Diário
+ * manda o aviso ("fica V. Sa. intimado para tomar ciência do acórdão lavrado
+ * nos autos") e o teor fica no link, então a palavra é o sinal.
+ *
+ * A exceção é a referência COMPOSTA, dentro de despacho de liquidação:
+ *
+ *   "os cálculos deverão observar rigorosamente os comandos da decisão
+ *    exequenda (...) atualizada (...) nos termos fixados na SENTENÇA/ACÓRDÃO"
+ *
+ * Aqui o acórdão já transitou — é a régua da conta, não notícia nova. O ato
+ * pede CÁLCULOS, e virou "Avaliar recurso" na agenda da Dra. Morgana
+ * (0001218-17.2023.5.22.0003, achado em 31/10/2026 varrendo as abertas).
+ *
+ * Seis publicações do acervo (quatro atos) casam esta forma, e em todas as
+ * seis não há nenhum outro `ACORDAO` no corpo — por isso apagar a referência
+ * antes de perguntar por recurso não tira nada de ninguém.
+ */
+const RE_JULGADO_EXEQUENDO =
+  /(SENTENCA\s*\/\s*ACORDAO|ACORDAO\s*\/\s*SENTENCA|DECISAO\s*\/\s*ACORDAO|ACORDAO EXEQUENDO)/g;
+
 /** Juntada de documento aos autos. */
 const RE_DOCUMENTOS = /(JUNTAR|JUNTADA|ACOSTAR|APRESENTAR (OS )?DOCUMENTOS|COMPROVANTE|COMPROVAR)/;
 
@@ -499,7 +523,10 @@ export function classificarProvidencia(
   // Recurso vem ANTES de manifestação quando o processo já foi julgado: uma ata
   // de sessão ou um acórdão pede decisão sobre recorrer, e a menção genérica a
   // "manifestação" no corpo do julgado não muda isso.
-  if (RE_RECURSO.test(t)) return resolver('AVALIAR_RECURSO');
+  // A referência ao julgado que se liquida sai da frente antes da pergunta.
+  if (RE_RECURSO.test(t.replace(RE_JULGADO_EXEQUENDO, 'SENTENCA'))) {
+    return resolver('AVALIAR_RECURSO');
+  }
   if (RE_MANIFESTACAO.test(t)) return resolver('ELABORAR_MANIFESTACAO');
   if (RE_DOCS_FILIADO.test(t)) return resolver('SOLICITAR_DOCUMENTOS_FILIADO');
   if (RE_DOCUMENTOS.test(t)) return resolver('JUNTAR_DOCUMENTOS');

@@ -457,3 +457,52 @@ describe('execução extinta por pagamento não vira tarefa', () => {
     expect(r.providencia).not.toBe('NENHUMA');
   });
 });
+
+/**
+ * O ACÓRDÃO QUE SE LIQUIDA NÃO É UM ACÓRDÃO PARA RECORRER.
+ *
+ * Achado em 31/10/2026 na conferência das atividades abertas: a tarefa da Dra.
+ * Morgana no 0001218-17.2023.5.22.0003 se chamava "Avaliar recurso", e o ato
+ * mandava apresentar CÁLCULOS DE LIQUIDAÇÃO. Casou a palavra `ACORDAO` dentro
+ * de "nos termos fixados na SENTENÇA/ACÓRDÃO".
+ */
+describe('referência ao julgado que se liquida', () => {
+  const DESPACHO_DE_LIQUIDACAO =
+    'VISTOS, ETC. COM AS RETIFICAÇÕES NA LISTA DOS SUBSTITUÍDOS, INTIMEM-SE AS PARTES PARA ' +
+    'APRESENTAÇÃO DOS SEUS CÁLCULOS DE LIQUIDAÇÃO, NOS TERMOS DO ART. 879 DA CLT, NO PRAZO ' +
+    'COMUM DE 30 (TRINTA) DIAS. A CONTA DEVERÁ SER ELABORADA PELO PJE-CALC E DEVERÁ CONTER ' +
+    'OS VALORES INDIVIDUALIZADOS, INCLUINDO ATUALIZAÇÃO MONETÁRIA E JUROS NOS TERMOS ' +
+    'FIXADOS NA SENTENÇA/ACÓRDÃO.';
+
+  it('não vira "avaliar recurso" por causa da palavra na referência', () => {
+    expect(classificarProvidencia(DESPACHO_DE_LIQUIDACAO, 'Intimação').providencia).not.toBe(
+      'AVALIAR_RECURSO',
+    );
+  });
+
+  it('"acórdão exequendo" também é a régua da conta, não notícia nova', () => {
+    const comExequendo =
+      'INTIME-SE A PARTE PARA APRESENTAR A CONTA, OBSERVANDO O ACÓRDÃO EXEQUENDO, NO PRAZO ' +
+      'DE 15 DIAS.';
+    expect(classificarProvidencia(comExequendo, 'Intimação').providencia).not.toBe(
+      'AVALIAR_RECURSO',
+    );
+  });
+
+  /*
+    E O ACÓRDÃO DE VERDADE CONTINUA SENDO ACÓRDÃO. No trabalhista o Diário manda
+    só o aviso e o teor fica no link — a palavra sozinha é o sinal, e acerta em
+    284 das 285 publicações do acervo que dependem dela. Tirá-la seria trocar um
+    erro por 284.
+  */
+  it('o aviso de acórdão lavrado continua pedindo decisão sobre recurso', () => {
+    const aviso =
+      'FICA V. SA. INTIMADO (A) PARA TOMAR CIÊNCIA DO ACÓRDÃO LAVRADO NOS AUTOS SUPRA.';
+    expect(classificarProvidencia(aviso, 'Intimação').providencia).toBe('AVALIAR_RECURSO');
+  });
+
+  it('e um acórdão citado junto com a sentença NÃO apaga outro acórdão do corpo', () => {
+    const osDois = `${DESPACHO_DE_LIQUIDACAO} FICA V. SA. INTIMADO DO ACÓRDÃO DE ID B117988.`;
+    expect(classificarProvidencia(osDois, 'Intimação').providencia).toBe('AVALIAR_RECURSO');
+  });
+});
