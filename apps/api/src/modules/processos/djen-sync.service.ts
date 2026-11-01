@@ -15,6 +15,7 @@ import { FONTE_DJEN, SincronizacaoLogService } from './sincronizacao-log.service
 import { classificarProvidencia } from './utils/providencia.util';
 import { nossoPoloNoAto, type PoloDetectado } from './utils/acao-nossa.util';
 import { ladoDoAtoEhDaAcao } from './utils/lado-do-ato.util';
+import { limparNomeDaParte, temPapelRecursalNoNome } from './utils/nome-da-parte.util';
 import {
   completarPolosQueFaltam,
   type ParteDoCabecalho,
@@ -574,6 +575,9 @@ export class DjenSyncService {
     });
     await this.etapa(resumo, 'partes do ato', async () => {
       await this.reporPartesDoAto();
+    });
+    await this.etapa(resumo, 'o outro lado da fila', async () => {
+      await this.completarOutroLadoDaFila();
     });
     await this.etapa(resumo, 'conferência da fila no CNJ', async () => {
       await this.conferirFilaSemVerificacao();
@@ -1215,7 +1219,18 @@ export class DjenSyncService {
         rótulo que admite não saber que um que afirma o contrário.
       */
       const lado = ladoDoAtoEhDaAcao(c.nomeClasse, c.numeroProcesso);
-      const polo: PoloDetectado = lado.daAcao ? noAto : 'INDEFINIDO';
+      /*
+        E O PAPEL ESCRITO NO NOME ACUSA O RECURSO QUE A CLASSE ESCONDE.
+
+        "1. ESTADO DO PIAUÍ (AGRAVANTE)": o tribunal rotula o papel recursal
+        dentro do campo do nome. Nas 10 publicações do acervo com essa marca, o
+        polo discorda da ficha em 10 de 10 — e pega o caso que a classe não
+        pega, o agravo publicado por dentro de uma ação de 2º grau.
+      */
+      const temPapel = (Array.isArray(c.destinatarios) ? c.destinatarios : []).some(
+        (d) => temPapelRecursalNoNome((d as { nome?: unknown })?.nome),
+      );
+      const polo: PoloDetectado = lado.daAcao && !temPapel ? noAto : 'INDEFINIDO';
       const quando = new Date(`${c.dataDisponibilizacao}T00:00:00Z`);
       /*
         AS PARTES SÓ MELHORAM — e antes elas congelavam na PRIMEIRA publicação.
@@ -1231,9 +1246,10 @@ export class DjenSyncService {
         Array.isArray(c.destinatarios) ? (c.destinatarios as { nome?: unknown; polo?: unknown }[]) : []
       )
         .map((d) => ({
-          nome: String(d?.nome ?? '').trim(),
+          // Sai a ordem da lista e o papel recursal; fica o nome da parte.
+          nome: limparNomeDaParte(d?.nome),
           // Mesma razão de cima: o nome do ato de recurso vale, o lado dele não.
-          polo: lado.daAcao ? String(d?.polo ?? '').trim() : '',
+          polo: lado.daAcao && !temPapelRecursalNoNome(d?.nome) ? String(d?.polo ?? '').trim() : '',
         }))
         .filter((d) => d.nome);
 
@@ -1513,6 +1529,87 @@ export class DjenSyncService {
       if (id) return id;
     }
     return null;
+  }
+
+  /**
+   * "MOVEM CONTRA NÓS" — MAS QUEM?
+   *
+   * A fila do Diário anunciava o lado e calava o nome. O dono viu isso no
+   * 0753756-36: "MOVEM CONTRA NÓS", e nada sobre quem move. A linha que diz
+   * "Movida por ..." já existia na tela; o que faltava era o dado.
+   *
+   * A razão é a mesma de sempre: a varredura consulta por OAB, e o CNJ só
+   * devolve as cópias endereçadas a NÓS. Numa ação em que só o sindicato foi
+   * intimado, `partes` tem um lado só — onze das 42 sugestões estão assim, e
+   * em dez delas esse lado somos nós mesmos.
+   *
+   * A consulta POR NÚMERO devolve as cópias dos OUTROS destinatários também, e
+   * com elas o outro lado. Uma chamada por ação, só para as PENDENTES que
+   * ainda têm um lado só, com teto — a cota é a mesma que a varredura acabou
+   * de usar. Hoje isso é UMA chamada.
+   *
+   * Não grava parte nenhuma: só melhora a lista que a fila mostra e que o
+   * formulário de cadastro usa de ponto de partida.
+   */
+  private async completarOutroLadoDaFila(): Promise<void> {
+    const TETO = 10;
+    const pendentes = await this.prisma.sugestaoProcesso.findMany({
+      where: { status: 'PENDENTE' },
+      orderBy: { ultimaEm: 'desc' },
+      select: { id: true, numeroCNJ: true, partes: true },
+    });
+    const semOutroLado = pendentes
+      .filter((x) => {
+        const lados = new Set(
+          (Array.isArray(x.partes) ? (x.partes as { polo?: unknown }[]) : [])
+            .map((d) => String(d?.polo ?? '').trim().toUpperCase())
+            .filter((v) => v === 'A' || v === 'P'),
+        );
+        return lados.size < 2;
+      })
+      .slice(0, TETO);
+    if (!semOutroLado.length) return;
+
+    this.logger.log(
+      `[DJEN] Procurando o outro lado de ${semOutroLado.length} ação(ões) da fila…`,
+    );
+    for (const s of semOutroLado) {
+      try {
+        const leitura = await this.djen.lerPorProcesso(s.numeroCNJ, { maxPaginas: 1 });
+        if (!leitura.itens.length) continue;
+
+        const partes: { nome: string; polo: string }[] = [];
+        for (const c of leitura.itens) {
+          const lado = ladoDoAtoEhDaAcao(c.nomeClasse, c.numeroProcesso);
+          for (const d of c.destinatarios ?? []) {
+            const nome = limparNomeDaParte(d?.nome);
+            if (!nome) continue;
+            const polo =
+              lado.daAcao && !temPapelRecursalNoNome(d?.nome)
+                ? String(d?.polo ?? '').trim()
+                : '';
+            if (!polo) {
+              if (!partes.some((x) => x.nome === nome)) partes.push({ nome, polo: '' });
+              continue;
+            }
+            const semLado = partes.findIndex((x) => x.nome === nome && !x.polo);
+            if (semLado >= 0) partes.splice(semLado, 1);
+            if (!partes.some((x) => x.nome === nome && x.polo === polo)) partes.push({ nome, polo });
+          }
+        }
+        const lados = new Set(partes.map((x) => x.polo).filter((v) => v === 'A' || v === 'P'));
+        // Só substitui quando a leitura por número cobre MAIS que a de antes.
+        if (lados.size < 2) continue;
+        await this.prisma.sugestaoProcesso.update({
+          where: { id: s.id },
+          data: { partes: partes as unknown as Prisma.InputJsonValue },
+        });
+        this.logger.log(`[DJEN] ${s.numeroCNJ}: outro lado encontrado (${partes.length} parte(s)).`);
+      } catch (err) {
+        // Falha numa ação não derruba as outras nem a varredura.
+        this.logger.warn(`[DJEN] Outro lado de ${s.numeroCNJ}: ${(err as Error).message}`);
+      }
+    }
   }
 
   /**

@@ -618,6 +618,38 @@ export function ImportarProcessoDialog({
     pessoa já escolheu fica, e o lado que ela já preencheu não recebe nada.
   */
   const [diario, setDiario] = useState<PartesNoDiario | null>(null);
+
+  /**
+   * "VOCÊ QUIS DIZER FMS?" — trocar o nome do tribunal pelo cadastro.
+   *
+   * O Diário escreve "FUNDACAO MUNICIPAL DE SAUDE"; o acervo tem a mesma
+   * fundação cadastrada como "FMS Teresina", com CNPJ e com os outros
+   * processos contra ela pendurados. Entrar com o nome do tribunal cria uma
+   * segunda organização — é a duplicata que a tela de mesclagem existe para
+   * desfazer depois, e que aqui custa um toque para não nascer.
+   *
+   * Substitui NO LUGAR, preservando a ordem: quem é o autor principal é o
+   * primeiro da lista, e tirar-e-pôr no fim trocaria o principal sem avisar.
+   */
+  function usarCadastro(c: NonNullable<PartesNoDiario['cadastros']>[number]) {
+    const trocar = (lista: ParteEditavel[]) =>
+      lista.map((x) =>
+        x.tipo === 'AVULSA' && normalizarNome(x.nome) === normalizarNome(c.paraONome)
+          ? { tipo: 'ORGANIZACAO' as const, nome: c.nome, parteExternaId: c.id,
+              detalhe: c.nomeFantasia ? `Cadastro · ${c.nomeFantasia}` : 'Cadastro do acervo' }
+          : x,
+      );
+    setPoloAtivo(trocar);
+    setReus(trocar);
+  }
+
+  /** Os convites que ainda cabem: só para nome que continua avulso na tela. */
+  const cadastrosSugeridos = useMemo(() => {
+    const avulsas = new Set(
+      [...poloAtivo, ...reus].filter((x) => x.tipo === 'AVULSA').map((x) => normalizarNome(x.nome)),
+    );
+    return (diario?.cadastros ?? []).filter((c) => avulsas.has(normalizarNome(c.paraONome)));
+  }, [diario, poloAtivo, reus]);
   const [consultandoDiario, setConsultandoDiario] = useState(false);
 
   /*
@@ -1310,6 +1342,57 @@ export function ImportarProcessoDialog({
               </span>
             </p>
           )}
+          {/*
+            "VOCÊ QUIS DIZER FMS?"
+
+            Fica junto da procedência, logo acima dos polos, porque é sobre os
+            nomes que acabaram de aparecer ali. Some sozinho quando a troca é
+            feita — `cadastrosSugeridos` só lista o que ainda está avulso.
+
+            O nome completo do cadastro aparece inteiro, de propósito: a
+            comparação acerta 22 vezes em 223 nomes e nenhuma delas é absurda,
+            mas quem conhece o caso tem de poder ver que é outra unidade antes
+            de tocar.
+          */}
+          {cadastrosSugeridos.length > 0 && (
+            <ul className="space-y-1.5">
+              {cadastrosSugeridos.map((c) => (
+                <li
+                  key={c.id + c.paraONome}
+                  className="rounded-md border border-dashed bg-muted/40 px-2.5 py-2"
+                >
+                  {/*
+                    DUAS FRASES, porque são duas situações.
+
+                    Quando o nome do Diário e o do cadastro são o mesmo texto,
+                    "você quis dizer" soa absurdo — e o ganho ali não é o nome,
+                    é o VÍNCULO: o CNPJ e os outros processos contra a mesma
+                    organização. Quando os nomes diferem, aí sim é a pergunta.
+                  */}
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    <span className="font-medium text-foreground">{c.paraONome}</span>{' '}
+                    {normalizarNome(c.paraONome) === normalizarNome(c.nome)
+                      ? 'já é um cadastro do acervo — use-o para manter os processos contra ela juntos:'
+                      : 'já está no acervo. Você quis dizer:'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => usarCadastro(c)}
+                    className="mt-1.5 flex min-h-9 w-full items-start gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-left text-xs font-medium transition hover:bg-muted sm:w-auto"
+                  >
+                    <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0">
+                      {c.nomeFantasia ?? c.nome}
+                      {c.nomeFantasia && (
+                        <span className="block font-normal text-muted-foreground">{c.nome}</span>
+                      )}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
           {!consultandoDiario && diario && !diario.publicacoes && poloAtivo.length === 0 && reus.length === 0 && (
             <p className="flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
               <Newspaper className="mt-px h-3 w-3 shrink-0" />

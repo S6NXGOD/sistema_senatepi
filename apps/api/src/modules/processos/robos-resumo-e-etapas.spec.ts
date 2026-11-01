@@ -329,8 +329,8 @@ describe('as etapas finais da varredura do DJEN', () => {
     expect(caixa.cobrarEsquecidas).toHaveBeenCalledTimes(1);
     expect(vinculo.aplicarNosProcessos).toHaveBeenCalledTimes(1);
     expect(partes.reconciliarTodos).toHaveBeenCalledTimes(1);
-    // conferência da fila + tarefa de cadastro
-    expect(prisma.sugestaoProcesso.findMany).toHaveBeenCalledTimes(2);
+    // o outro lado da fila + conferência da fila + tarefa de cadastro
+    expect(prisma.sugestaoProcesso.findMany).toHaveBeenCalledTimes(3);
     expect(resumo.etapasComFalha).toEqual(['correlação (banco instável)']);
     expect(logSync.registrar).toHaveBeenCalledWith(
       expect.objectContaining({

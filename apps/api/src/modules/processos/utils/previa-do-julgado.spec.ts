@@ -93,3 +93,50 @@ describe('o que a mudança NÃO pode estragar', () => {
     expect(trechoDaOrdem('')).toBeNull();
   });
 });
+
+/**
+ * O AVISO DE PRAXE NÃO É A ORDEM.
+ *
+ * "Fica V. Sa. intimado para tomar ciência do Despacho ID 7d684b3" abre quase
+ * todo ato do TRT. Ele casava com o padrão e, sendo o primeiro no texto,
+ * levava o recorte inteiro — 58% das 1.952 publicações do acervo paravam aí,
+ * e 43 delas viraram tarefa ou proposta na agenda de alguém.
+ *
+ * Caso real (0000764-11.2021.5.22.0002, agenda da Dra. Morgana): a tarefa
+ * citava "Recebo o Agravo de Petição interposto pela…", cortado exatamente
+ * antes da única linha que interessava a ela.
+ */
+describe('o recorte pula o "tomar ciência"', () => {
+  const ATO =
+    'Fica V. Sa. intimado para tomar ciência da Decisão ID 5de7bfe proferida nos autos. ' +
+    'DESPACHO DE ADMISSIBILIDADE DE RECURSO Recebo o Agravo de Petição interposto pela parte ' +
+    'reclamada, eis que tempestivo. A parte reclamante, por sua vez, fica devidamente intimada ' +
+    'para apresentar impugnação em oito dias. Transcorrido o prazo, subam-se os autos ao E. TRT.';
+
+  it('cita o que o juízo mandou, não o aviso de leitura', () => {
+    const t = trechoDaOrdem(ATO)!;
+    expect(t).toContain('impugnação em oito dias');
+    expect(t).not.toContain('tomar ciência');
+  });
+
+  /*
+    E NUNCA FICA SEM NADA: se o que vem depois do aviso também for só aviso, o
+    aviso volta. Recorte fraco é melhor que tarefa sem citação do ato — foi a
+    ausência dessa citação que o dono apontou em 29/10/2026.
+  */
+  it('sem ordem depois dele, o aviso de praxe volta', () => {
+    const so = 'Fica V. Sa. intimado para tomar ciência do Despacho ID 2fee85c proferido nos autos.';
+    expect(trechoDaOrdem(so)).toContain('tomar ciência');
+  });
+
+  it('ato que já começa pela ordem não muda', () => {
+    const direto =
+      'INTIME-SE o sindicato autor para, no prazo de 15 (quinze) dias, emendar a petição inicial.';
+    expect(trechoDaOrdem(direto)).toContain('emendar a petição inicial');
+  });
+
+  it('o dispositivo do julgado longo continua tendo precedência', () => {
+    const longo = `${'x'.repeat(6000)} DISPOSITIVO Ante o exposto, nego provimento ao recurso ordinário.`;
+    expect(trechoDaOrdem(longo)).toContain('nego provimento');
+  });
+});

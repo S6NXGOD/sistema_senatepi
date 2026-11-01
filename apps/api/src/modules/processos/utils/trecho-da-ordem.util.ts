@@ -153,6 +153,24 @@ export function fecharTrecho(bruto: string): string {
   return t.trim();
 }
 
+/**
+ * "FICA V. SA. INTIMADO PARA TOMAR CIÊNCIA DO DESPACHO ID 7d684b3" — e daí?
+ *
+ * É o cabeçalho de praxe de todo ato do TRT: avisa que existe algo para ler e
+ * não manda fazer coisa nenhuma. Ele casa com o segundo padrão de ordem e,
+ * sendo o primeiro a aparecer no texto, ficava com o recorte inteiro — gastando
+ * os 150 caracteres no aviso e no ID do documento, enquanto o DESPACHO logo
+ * atrás dizia o que o juízo determinou.
+ *
+ * Medido em 31/10/2026 sobre as 1.952 publicações com recorte: **1.128 (58%)**
+ * eram só isto, e 43 delas viraram tarefa ou proposta na agenda de alguém. O
+ * caso que apareceu na conferência: "Recebo o Agravo de Petição interposto
+ * pela…" — cortado exatamente antes de "A parte reclamante fica intimada para
+ * apresentar impugnação em oito dias", que era a única linha que interessava.
+ */
+const SO_TOMAR_CIENCIA =
+  /^FICA[M]?\s.{0,30}INTIMAD[OA]S?(\(A\))?\s+(PARA\s+)?(TOMAR\s+)?CI[EÊ]NCIA/i;
+
 export function trechoDaOrdem(texto: string): string | null {
   /*
     O DISPOSITIVO TAMBÉM PASSA PELO FECHO. Ele saía cru — e terminava em
@@ -163,11 +181,29 @@ export function trechoDaOrdem(texto: string): string | null {
   if (dispositivo) return fecharTrecho(dispositivo);
 
   const t = (texto || '').replace(/\s+/g, ' ');
-  for (const re of PADROES_DE_ORDEM) {
-    const m = re.exec(t);
-    if (!m) continue;
-    const trecho = fecharTrecho(m[0].trim());
-    if (trecho.length > MINIMO_UTIL) return trecho;
-  }
-  return null;
+  const achar = (onde: string): { trecho: string; fim: number } | null => {
+    for (const re of PADROES_DE_ORDEM) {
+      const m = re.exec(onde);
+      if (!m) continue;
+      const trecho = fecharTrecho(m[0].trim());
+      if (trecho.length > MINIMO_UTIL) return { trecho, fim: (m.index ?? 0) + m[0].length };
+    }
+    return null;
+  };
+
+  const primeiro = achar(t);
+  if (!primeiro) return null;
+  if (!SO_TOMAR_CIENCIA.test(primeiro.trecho)) return primeiro.trecho;
+
+  /*
+    O AVISO DE PRAXE FICA DE RESERVA, NUNCA SE PERDE.
+
+    Procura-se a ordem de verdade DEPOIS dele; se o que vem atrás também for
+    só ciência (ou não houver nada), volta o primeiro. Um recorte fraco é
+    melhor que recorte nenhum — sem ele a tarefa não cita o ato, e foi a
+    ausência dessa citação que o dono apontou em 29/10/2026.
+  */
+  const depois = achar(t.slice(primeiro.fim));
+  if (depois && !SO_TOMAR_CIENCIA.test(depois.trecho)) return depois.trecho;
+  return primeiro.trecho;
 }

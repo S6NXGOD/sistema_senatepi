@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { normalizarNome } from './utils/acao-nossa.util';
 import { ladoDoAtoEhDaAcao } from './utils/lado-do-ato.util';
+import { limparNomeDaParte, temPapelRecursalNoNome } from './utils/nome-da-parte.util';
+import { palavrasSignificativas, partesParecidas, ruidoDeCidades } from './utils/similaridade.util';
 import {
   completarPolosQueFaltam,
   lerPartesDoCabecalho,
@@ -144,6 +146,27 @@ interface AdvogadoDoAto {
  * a tela de cadastro continua funcionando sem isto — era assim que ela era
  * antes. Por isso cada recusa traz a frase pronta, em português.
  */
+/**
+ * "VOCÊ QUIS DIZER FMS?" — o cadastro que já existe para aquele nome.
+ *
+ * O Diário escreve "FUNDACAO MUNICIPAL DE SAUDE"; o acervo tem "Fundação
+ * Municipal de Saúde." com o apelido "FMS Teresina" e o CNPJ. Entrar com o
+ * nome do tribunal cria uma segunda organização e separa os processos contra
+ * o mesmo empregador — que é exatamente o que o texto de ajuda da tela pede
+ * para não fazer.
+ *
+ * É SUGESTÃO, não substituição: a tela mostra o nome do Diário e oferece o
+ * cadastro em um toque. A régua é a mesma da tela de duplicatas
+ * (`partesParecidas`), não uma segunda comparação escrita para cá.
+ */
+export interface CadastroParecido {
+  id: string;
+  nome: string;
+  nomeFantasia: string | null;
+  /** Por que o sistema achou que é o mesmo: MESMO_DOCUMENTO, SIGLA, CONTIDO… */
+  motivo: string;
+}
+
 export interface PartesParaCadastro {
   consultou: boolean;
   /** Por que não deu, quando não deu. Nulo quando deu certo. */
@@ -151,6 +174,8 @@ export interface PartesParaCadastro {
   fonte: FonteDasPartes | null;
   /** Partes com lado que o sistema assina — prontas para preencher o polo. */
   partes: ParteDoAto[];
+  /** Para cada nome (do Diário), o cadastro que já existe — quando existe. */
+  cadastros: (CadastroParecido & { paraONome: string })[];
   /** Nomes que o ato cita e cujo lado ele NÃO assina. */
   duvida: ParteEmDuvida[];
   /** O que o cabeçalho do ato diz sobre o lado que continuou vazio. */
@@ -163,7 +188,7 @@ export interface PartesParaCadastro {
 
 const SEM_DIARIO: PartesParaCadastro = {
   consultou: false, porque: null, fonte: null,
-  partes: [], duvida: [], cabecalho: [], advogados: [],
+  partes: [], cadastros: [], duvida: [], cabecalho: [], advogados: [],
   publicacoes: 0, ultimaEm: null,
 };
 
@@ -311,7 +336,7 @@ export function lerPartesDoAto(
     para nome longo — chave curta casaria dentro de qualquer razão social.
   */
   const daCasa = advogadosDaCasa
-    .map((n) => comparavelParte(n))
+    .map((n) => comparavelParte(limparNomeDaParte(n)))
     .filter((k) => k.length >= TAMANHO_MINIMO_DO_NOME_DA_CASA);
   const ehAdvogadoDaCasa = (k: string) => daCasa.some((c) => k.includes(c));
 
@@ -329,9 +354,31 @@ export function lerPartesDoAto(
     { nome: string; polos: Set<PoloDaParte>; semLado: boolean; soNoRecurso: boolean }
   >();
   for (const p of publicacoes) {
-    const lado = ladoDoAtoEhDaAcao(p.nomeClasse, p.numeroProcesso);
-    for (const d of Array.isArray(p.destinatarios) ? (p.destinatarios as { nome?: string; polo?: string }[]) : []) {
-      const nome = String(d?.nome ?? '').trim();
+    const destinatarios = Array.isArray(p.destinatarios)
+      ? (p.destinatarios as { nome?: string; polo?: string }[])
+      : [];
+    /*
+      O NOME SAI LIMPO, E O RÓTULO DELE AINDA DIZ UMA COISA.
+
+      "1. ESTADO DO PIAUÍ (AGRAVANTE)" é um nome com a ordem da lista e o papel
+      recursal grudados. Tirar é óbvio; o que não era óbvio é que aquele
+      "(AGRAVANTE)" vale como aviso: nas 10 publicações do acervo em que o
+      tribunal escreve assim, o polo publicado discorda do polo da ficha em 10
+      de 10 — mais forte que a classe, e pega o caso que a classe não pega (o
+      agravo publicado por dentro de uma ação autuada em 2º grau).
+
+      A MARCA É DO ATO, NÃO DO NOME. O tribunal numera a lista INTEIRA pelo
+      recurso: se um destinatário é "(AGRAVANTE)", o outro é "(RECORRIDO)" e
+      nenhum dos dois lados ali é o da ação. A primeira versão desta regra
+      olhava nome a nome, e com isso aceitava o lado do sindicato de um ato
+      recursal — o bastante para envenenar a bússola logo abaixo.
+    */
+    const lado =
+      destinatarios.some((d) => temPapelRecursalNoNome(d?.nome))
+        ? { daAcao: false }
+        : ladoDoAtoEhDaAcao(p.nomeClasse, p.numeroProcesso);
+    for (const d of destinatarios) {
+      const nome = limparNomeDaParte(d?.nome);
       const k = comparavelParte(nome);
       if (!k || advogados.has(k) || ehAdvogadoDaCasa(k)) continue;
       const atual =
@@ -354,7 +401,10 @@ export function lerPartesDoAto(
   const porqueRecurso =
     publicacoes
       .map((p) => ladoDoAtoEhDaAcao(p.nomeClasse, p.numeroProcesso))
-      .find((x) => !x.daAcao)?.porque ?? '';
+      .find((x) => !x.daAcao)?.porque ??
+    // Nenhuma CLASSE era de recurso: quem acusou foi o papel escrito no nome.
+    'o tribunal escreve o papel no recurso junto do nome da parte ' +
+      '("(AGRAVANTE)", "(RECORRIDO)") — esse lado é o do recurso, não o da ação';
 
   const naFicha = new Set(jaNaFicha.map((x) => comparavelParte(x.nome)));
   const nossaNaFicha = jaNaFicha.find((x) => x.parteExterna?.institucional);
@@ -717,6 +767,65 @@ export class PartesDoDiarioService {
         ? []
         : completarPolosQueFaltam(publicacoes[0].texto ?? '', [...cobertos]);
 
+    /*
+      E PARA CADA NOME, O CADASTRO QUE JÁ EXISTE.
+
+      Vale para os dois lados e também para quem está em dúvida: trocar pelo
+      cadastro mantém todos os processos contra o mesmo empregador juntos, e é
+      na hora do cadastro que isso custa um toque em vez de uma mesclagem
+      depois. 96 organizações no acervo — carregar a lista inteira é uma
+      consulta, e a comparação é a mesma da tela de duplicatas.
+    */
+    const candidatos = await this.prisma.parteExterna.findMany({
+      where: { institucional: false },
+      select: { id: true, nome: true, nomeFantasia: true, documento: true, cidade: true },
+    });
+    /*
+      O CORTE É MAIS APERTADO AQUI QUE NA TELA DE DUPLICATAS — e tem de ser.
+
+      Lá a pessoa compara dois cadastros lado a lado e decide; aqui ela toca um
+      botão e o nome entra na ficha. Medido sobre os 223 nomes que o Diário já
+      mandou: sem apertar, saíam 46 sugestões e as erradas eram grosseiras —
+      "SANTA CASA DE MISERICÓRDIA DE PARNAÍBA" virava "MUNICÍPIO DE PARNAÍBA",
+      "MARCOS VICTOR BARROS SILVA" virava "SÃO MARCOS". Com o ruído de cidade
+      (que a própria `similaridade.util` sabe montar) e um piso de DUAS
+      palavras significativas em comum para os indícios fracos, sobram 22 — e
+      nenhuma absurda.
+    */
+    const ruido = ruidoDeCidades(candidatos);
+    const INDICIO_FORTE = new Set(['MESMO_DOCUMENTO', 'MESMO_NOME', 'SIGLA']);
+    const cadastros: (CadastroParecido & { paraONome: string })[] = [];
+    for (const nome of [...repor.map((x) => x.nome), ...duvida.map((x) => x.nome)]) {
+      const achado = partesParecidas(nome, null, candidatos, 1, ruido)[0];
+      if (!achado) continue;
+      if (!INDICIO_FORTE.has(achado.motivo)) {
+        const doNome = new Set(palavrasSignificativas(nome, ruido));
+        const emComum = (v: string) => palavrasSignificativas(v, ruido).filter((w) => doNome.has(w)).length;
+        if (Math.max(emComum(achado.parte.nome), emComum(achado.parte.nomeFantasia ?? '')) < 2) continue;
+      }
+      /*
+        NOME IGUAL NÃO É MOTIVO PARA CALAR — era, e matava o caso principal.
+
+        A primeira versão pulava quando o nome do Diário e o do cadastro eram
+        idênticos depois de normalizar, por achar que "já é o próprio
+        cadastro". Não é: a parte aqui é só um NOME vindo do ato, sem vínculo
+        nenhum. O cadastro é que tem o CNPJ, o apelido e os outros processos
+        contra a mesma organização pendurados — e é exatamente o que se perde
+        entrando com o texto do tribunal.
+
+        Foi o que aconteceu com "FUNDACAO MUNICIPAL DE SAUDE" × "Fundação
+        Municipal de Saúde." (FMS Teresina): a comparação achava, o guarda
+        descartava, e a tela não oferecia nada.
+      */
+      cadastros.push({
+        paraONome: nome,
+        id: achado.parte.id,
+        nome: achado.parte.nome,
+        nomeFantasia: achado.parte.nomeFantasia ?? null,
+        motivo: achado.motivo,
+      });
+    }
+
     const advogados = new Map<string, { nome: string; oab: string | null }>();
     for (const p of publicacoes) {
       for (const a of Array.isArray(p.advogados) ? (p.advogados as AdvogadoDoAto[]) : []) {
@@ -732,6 +841,7 @@ export class PartesDoDiarioService {
       porque: null,
       fonte,
       partes: repor,
+      cadastros,
       duvida,
       cabecalho,
       advogados: [...advogados.values()],

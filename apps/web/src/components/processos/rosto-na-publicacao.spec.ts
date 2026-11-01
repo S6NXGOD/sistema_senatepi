@@ -387,3 +387,68 @@ describe('duas fontes, um lado só', () => {
     expect(DIALOGO).toContain("acrescentarNoPolo(novaOrg?.polo ?? 'PASSIVO'");
   });
 });
+
+/**
+ * "VOCÊ QUIS DIZER FMS?"
+ *
+ * O Diário escreve "FUNDACAO MUNICIPAL DE SAUDE"; o acervo tem a mesma
+ * fundação como "FMS Teresina", com CNPJ e com os outros processos contra ela
+ * pendurados. Entrar com o nome do tribunal cria uma segunda organização — a
+ * duplicata que a tela de mesclagem existe para desfazer depois.
+ */
+describe('o cadastro que já existe', () => {
+  const DIALOGO = lerCodigo('importar-processo-dialog.tsx');
+
+  it('oferece a troca, e só enquanto o nome continua avulso', () => {
+    expect(DIALOGO).toContain('function usarCadastro');
+    expect(DIALOGO).toContain('const cadastrosSugeridos = useMemo');
+    expect(DIALOGO).toContain("filter((x) => x.tipo === 'AVULSA')");
+  });
+
+  /** Trocar no lugar: o primeiro da lista é o autor principal. */
+  it('substitui na posição, sem trocar quem é o principal', () => {
+    const inicio = DIALOGO.indexOf('function usarCadastro');
+    // Só o corpo da função: o memo logo abaixo usa `filter` por outra razão.
+    // `lerCodigo` tira os comentarios: a ancora tem de ser CODIGO.
+    const fim = DIALOGO.indexOf('const cadastrosSugeridos', inicio);
+    const fn = DIALOGO.slice(inicio, fim > 0 ? fim : inicio + 900);
+    expect(fn).toContain('lista.map((x) =>');
+    expect(fn).not.toContain('filter(');
+  });
+
+  it('o nome completo do cadastro aparece, para dar para recusar', () => {
+    expect(DIALOGO).toContain('{c.nomeFantasia ?? c.nome}');
+    expect(DIALOGO).toContain('{c.nome}');
+  });
+});
+
+/**
+ * "MOVEM CONTRA NÓS" — MAS QUEM?
+ *
+ * A fila mostrava o lado e calava o nome. O dono viu isso no 0753756-36: dá
+ * para saber que movem contra nós, não dá para saber quem move nem contra
+ * quem. A linha "Movida por …" já existia; faltava o dado — e o filtro que
+ * escolhia o nome tinha um defeito próprio.
+ */
+describe('a fila do Diário diz quem está do outro lado', () => {
+  const FILA = lerCodigo('acoes-encontradas.tsx');
+
+  /*
+    O FILTRO ESCONDIA SINDICATO ADVERSÁRIO. Era `!nome.includes('SINDICATO')`:
+    nas duas consignações em pagamento do acervo quem está do outro lado é o
+    SINDEACS-PI, e o filtro o apagava junto com o nosso nome.
+  */
+  it('tira apenas NÓS, pela sigla — não qualquer sindicato', () => {
+    expect(FILA).toContain('ehOSindicato(n, tenant.sigla)');
+    expect(FILA).not.toContain("includes('SINDICATO')");
+  });
+
+  /** O cabeçalho do ato entra de reserva quando só o sindicato foi intimado. */
+  it('usa o cabeçalho quando as partes trazem um lado só', () => {
+    expect(FILA).toContain('s.partesDoCabecalho ?? []');
+  });
+
+  it('não repete o mesmo nome vindo das duas fontes', () => {
+    expect(FILA).toContain('[...new Set(nomesDoOutroLado)]');
+  });
+});

@@ -522,3 +522,93 @@ describe('o nosso lado em dúvida', () => {
     expect(r.nossoLado).toBeNull();
   });
 });
+
+/**
+ * O NOME SAI LIMPO E O RÓTULO DELE AINDA AVISA.
+ *
+ * Produção, 31/10/2026: três partes gravadas como
+ * "1. MUNICÍPIO DE PARNAIBA (AGRAVANTE)" — e as três no polo ATIVO, ao lado
+ * do sindicato, como se o adversário fosse litisconsorte nosso.
+ */
+describe('o lixo do tribunal no nome', () => {
+  const COM_LIXO = '1. MUNICIPIO DE PARNAIBA (AGRAVANTE)';
+
+  it('o nome entra sem a ordem da lista e sem o papel', () => {
+    const r = ler(
+      [pub([{ nome: 'MUNICIPIO DE PARNAIBA', polo: 'P' }])],
+      naFicha([[NOS_CADASTRO, 'ATIVO', true]]),
+    );
+    expect(r.repor).toEqual([{ nome: 'MUNICIPIO DE PARNAIBA', polo: 'PASSIVO' }]);
+  });
+
+  /*
+    E o "(AGRAVANTE)" vale como aviso mesmo numa classe originária: é o caso
+    do agravo publicado por dentro de uma ação autuada em 2º grau, que a régua
+    da classe não pega.
+  */
+  it('o papel no nome tira o lado, mesmo em classe da ação', () => {
+    const r = ler(
+      [pub([{ nome: COM_LIXO, polo: 'A' }, { nome: NOS, polo: 'P' }])],
+      naFicha([[NOS_CADASTRO, 'ATIVO', true]]),
+    );
+    expect(r.repor).toEqual([]);
+    expect(r.duvida.map((x) => x.nome)).toEqual(['MUNICIPIO DE PARNAIBA']);
+    expect(r.duvida[0].polo).toBeNull();
+    expect(r.duvida[0].porque).toContain('recurso');
+  });
+
+  it('a mesma parte limpa e suja é UMA só', () => {
+    const r = ler(
+      [
+        pub([{ nome: COM_LIXO, polo: 'A' }, { nome: NOS, polo: 'P' }]),
+        pub([{ nome: 'MUNICIPIO DE PARNAIBA', polo: 'P' }, { nome: NOS, polo: 'A' }]),
+      ],
+      naFicha([[NOS_CADASTRO, 'ATIVO', true]]),
+    );
+    expect(r.repor).toEqual([{ nome: 'MUNICIPIO DE PARNAIBA', polo: 'PASSIVO' }]);
+    expect(r.duvida).toEqual([]);
+  });
+});
+
+/**
+ * "VOCÊ QUIS DIZER FMS?" — o corte é mais apertado aqui que na tela de duplicatas.
+ *
+ * Lá a pessoa compara dois cadastros lado a lado; aqui ela toca um botão e o
+ * nome entra na ficha. Medido sobre os 223 nomes que o Diário já mandou: sem
+ * apertar saíam 46 sugestões e as erradas eram grosseiras — "SANTA CASA DE
+ * MISERICÓRDIA DE PARNAÍBA" virava "MUNICÍPIO DE PARNAÍBA". Com o ruído de
+ * cidade e o piso de duas palavras significativas, sobram 22.
+ */
+describe('a sugestão de cadastro existente', () => {
+  const SERVICO_TXT = SERVICO.slice(SERVICO.indexOf('async paraCadastro('));
+
+  it('usa a régua da tela de duplicatas, não uma segunda comparação', () => {
+    expect(SERVICO_TXT).toContain('partesParecidas(nome, null, candidatos, 1, ruido)');
+    expect(SERVICO_TXT).toContain('ruidoDeCidades(candidatos)');
+  });
+
+  it('indício fraco só com DUAS palavras significativas em comum', () => {
+    expect(SERVICO_TXT).toContain("INDICIO_FORTE = new Set(['MESMO_DOCUMENTO', 'MESMO_NOME', 'SIGLA'])");
+    expect(SERVICO_TXT).toContain('< 2) continue;');
+  });
+
+  /*
+    NOME IGUAL É JUSTAMENTE QUANDO SUGERIR — e este teste já afirmou o contrário.
+
+    A primeira versão pulava quando o nome do Diário e o do cadastro eram
+    idênticos depois de normalizar, e o teste guardava esse guarda. Era o
+    caso principal: "FUNDACAO MUNICIPAL DE SAUDE" × "Fundação Municipal de
+    Saúde." (FMS Teresina) — a comparação achava, o guarda descartava, e a
+    tela não oferecia nada. O que se ganha ali não é o nome, é o VÍNCULO: o
+    CNPJ e os outros processos contra a mesma organização.
+  */
+  it('sugere mesmo quando o nome é o mesmo — o que se ganha é o vínculo', () => {
+    expect(SERVICO_TXT).not.toContain('=== comparavelParte(nome)) continue');
+  });
+
+  /* O sindicato tem caminho próprio na tela; sugeri-lo como organização
+     criaria a segunda parte institucional que o gate existe para evitar. */
+  it('a parte institucional fica fora dos candidatos', () => {
+    expect(SERVICO_TXT).toContain('where: { institucional: false }');
+  });
+});

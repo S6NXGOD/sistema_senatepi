@@ -679,12 +679,25 @@ describe('o advogado que a varredura não enxerga', () => {
 describe('o lado que a fila anuncia', () => {
   it('passa a classe e o número pela régua antes de rotular', () => {
     expect(SYNC).toContain('ladoDoAtoEhDaAcao(c.nomeClasse, c.numeroProcesso)');
-    expect(SYNC).toContain("const polo: PoloDetectado = lado.daAcao ? noAto : 'INDEFINIDO';");
+    expect(SYNC).toContain("const polo: PoloDetectado = lado.daAcao && !temPapel ? noAto : 'INDEFINIDO';");
   });
 
-  /** O nome do ato de recurso vale; o lado dele, não. */
-  it('a parte vinda só de recurso entra sem lado', () => {
-    expect(SYNC).toContain("polo: lado.daAcao ? String(d?.polo ?? '').trim() : ''");
+  /*
+    E O PAPEL ESCRITO NO NOME ACUSA O RECURSO QUE A CLASSE ESCONDE —
+    "1. ESTADO DO PIAUÍ (AGRAVANTE)" num ato cuja classe parece originária.
+    Nas 10 publicações do acervo com essa marca, o polo discorda da ficha em
+    10 de 10.
+  */
+  it('o papel recursal no nome também derruba o lado', () => {
+    expect(SYNC).toContain('temPapelRecursalNoNome((d as { nome?: unknown })?.nome)');
+  });
+
+  /** O nome do ato de recurso vale, limpo; o lado dele, não. */
+  it('a parte vinda só de recurso entra sem lado, e com o nome limpo', () => {
+    expect(SYNC).toContain('nome: limparNomeDaParte(d?.nome)');
+    expect(SYNC).toContain(
+      "polo: lado.daAcao && !temPapelRecursalNoNome(d?.nome) ? String(d?.polo ?? '').trim() : ''",
+    );
   });
 
   /** E o lado SÓ MELHORA: um ato da ação desbanca o INDEFINIDO do recurso. */

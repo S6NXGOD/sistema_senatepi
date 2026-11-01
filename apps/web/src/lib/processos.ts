@@ -653,11 +653,29 @@ export interface PartePorConfirmar {
  * desligado, cota do CNJ ocupada, ponte fora). A tela de cadastro funciona sem
  * isto — era assim que ela era —, por isso nada aqui trava o formulário.
  */
+/**
+ * "VOCÊ QUIS DIZER FMS?" — o cadastro que já existe para aquele nome do Diário.
+ *
+ * O tribunal escreve "FUNDACAO MUNICIPAL DE SAUDE"; o acervo tem "Fundação
+ * Municipal de Saúde." com o apelido "FMS Teresina" e o CNPJ. Entrar com o
+ * nome do tribunal cria uma segunda organização e separa os processos contra
+ * o mesmo empregador.
+ */
+export interface CadastroParecido {
+  /** O nome, como o Diário escreveu — é por ele que a tela acha a sugestão. */
+  paraONome: string;
+  id: string;
+  nome: string;
+  nomeFantasia: string | null;
+  motivo: string;
+}
+
 export interface PartesNoDiario {
   consultou: boolean;
   porque: string | null;
   fonte: 'acervo' | 'diario' | null;
   partes: PartePeloDiario[];
+  cadastros: CadastroParecido[];
   duvida: PartePorConfirmar[];
   cabecalho: { polo?: string | null; nome?: string | null; rotulo?: string | null }[];
   advogados: { nome: string; oab: string | null }[];

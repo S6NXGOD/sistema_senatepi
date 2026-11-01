@@ -14,6 +14,8 @@ import {
   type SugestaoDeProcesso,
 } from '@/lib/processos';
 import { varrerDjenAgora } from '@/lib/djen';
+import { ehOSindicato } from '@/lib/sigla-do-sindicato';
+import { tenant } from '@/tenant.config';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
 import { useAuth } from '@/lib/auth';
 
@@ -445,11 +447,27 @@ export function AcoesEncontradas({
               nome do sindicato aparece em todas — repeti-lo gastaria a largura
               que no celular já é curta.
             */
-            const outraParte = (s.partes ?? [])
-              .map((p) => (p?.nome ?? '').trim())
-              .filter((n) => n && !n.toUpperCase().includes('SINDICATO'))
-              .slice(0, 2)
-              .join(' · ');
+            /*
+              DOIS CONSERTOS AQUI, e os dois vieram da produção.
+
+              1. O FILTRO ESCONDIA SINDICATO ADVERSÁRIO. Era
+                 `!nome.includes('SINDICATO')` — simples e errado: nas duas
+                 consignações em pagamento do acervo quem está do outro lado é
+                 o SINDEACS-PI, e numa ação do SINDEACS contra o município o
+                 nosso nome não é o único com a palavra. Agora sai apenas QUEM
+                 É NÓS, pela sigla, que é a mesma régua do resto do módulo.
+
+              2. O CABEÇALHO ENTRA DE RESERVA. Quando só o sindicato foi
+                 intimado, `partes` tem um lado só e a linha "Movida por …"
+                 simplesmente não aparecia — foi o que o dono viu no
+                 0753756-36: "MOVEM CONTRA NÓS" sem dizer por quem. O
+                 cabeçalho do ato nomeia o outro lado em 78% desses casos.
+            */
+            const nomesDoOutroLado = [
+              ...(s.partes ?? []).map((p) => (p?.nome ?? '').trim()),
+              ...(s.partesDoCabecalho ?? []).map((p) => (p?.nome ?? '').trim()),
+            ].filter((n) => n && !ehOSindicato(n, tenant.sigla));
+            const outraParte = [...new Set(nomesDoOutroLado)].slice(0, 2).join(' · ');
 
             return (
               <li
