@@ -196,3 +196,34 @@ describe('a leitura do destinatário não se duplica', () => {
     expect(corpo).not.toMatch(/PAPEL_(ATIVO|PASSIVO)\./);
   });
 });
+
+/**
+ * CONSIGNAÇÃO EM PAGAMENTO — o rótulo que faltava, e que custou duas fichas.
+ *
+ * Os dois únicos processos de consignação do acervo são exatamente os dois em
+ * que a ficha tem os polos trocados, e o ato diz quem é quem com todas as
+ * letras. Trecho real do 0001310-36.2016.5.22.0101.
+ */
+describe('consignação em pagamento', () => {
+  const ATO =
+    'PODER JUDICIÁRIO JUSTIÇA DO TRABALHO TRIBUNAL REGIONAL DO TRABALHO DA 22ª REGIÃO ' +
+    'VARA DO TRABALHO DE PARNAÍBA ConPag 0001310-36.2016.5.22.0101 ' +
+    'CONSIGNANTE: MUNICIPIO DE COCAL ' +
+    'CONSIGNATÁRIO: SINDICATO ESTADUAL DOS AGENTES COMUNITARIOS DE SAUDE E COMBATE AS ENDEMIAS DO PIAUI-SINDEACS-PI E OUTROS (4) ' +
+    'INTIMAÇÃO Fica V. Sa. intimado para tomar ciência do Despacho ID 2c2c8b0 proferido nos autos.';
+
+  it('quem consigna é o autor; quem recebe, o réu', () => {
+    const r = lerPartesDoCabecalho(ATO);
+    expect(r.map((x) => ({ polo: x.polo, nome: x.nome.slice(0, 22) }))).toEqual([
+      { polo: 'A', nome: 'MUNICIPIO DE COCAL' },
+      { polo: 'P', nome: 'SINDICATO ESTADUAL DOS' },
+    ]);
+  });
+
+  it('o plural e a forma sem acento também entram', () => {
+    expect(lerPartesDoCabecalho('CONSIGNANTES: MUNICIPIO X CONSIGNATARIOS: SINDICATO Y')).toEqual([
+      { polo: 'A', nome: 'MUNICIPIO X', rotulo: 'CONSIGNANTES' },
+      { polo: 'P', nome: 'SINDICATO Y', rotulo: 'CONSIGNATARIOS' },
+    ]);
+  });
+});

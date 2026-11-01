@@ -52,8 +52,8 @@ describe('a detecção na ingestão', () => {
       SYNC.indexOf('private async sugerirAcoesNossas('),
       SYNC.indexOf('private async ingerir('),
     );
-    expect(fn).toContain('const polo = nossoPoloNoAto(c.destinatarios, sigla);');
-    expect(fn).toContain('if (!polo) continue;');
+    expect(fn).toContain('const noAto = nossoPoloNoAto(c.destinatarios, sigla);');
+    expect(fn).toContain('if (!noAto) continue;');
   });
 
   /**
@@ -661,5 +661,40 @@ describe('o advogado que a varredura não enxerga', () => {
   /** No log da aplicação ninguém olha: o resumo gravado é o que sobrevive. */
   it('o resumo persistido também avisa', () => {
     expect(SYNC).toContain('advogado(s) sem OAB n\u00e3o foram consultados');
+  });
+});
+
+/**
+ * A FILA PARA DE AFIRMAR O LADO QUANDO O ATO É UM RECURSO.
+ *
+ * Esta é a origem de TRÊS das cinco fichas do acervo com os polos trocados
+ * (31/10/2026). A fila anunciava "Ação movida CONTRA o sindicato" lendo o polo
+ * de um Recurso Ordinário publicado dentro do número da reclamação — onde quem
+ * recorreu aparece como autor — e quem cadastrava acreditava no anúncio. O
+ * lado publicado nessa faixa acerta 39,2% (ver `lado-do-ato.util`).
+ *
+ * `INDEFINIDO` já existia no enum para isto, e a tela já sabia dizê-lo:
+ * "Ação do sindicato (polo não informado no ato)".
+ */
+describe('o lado que a fila anuncia', () => {
+  it('passa a classe e o número pela régua antes de rotular', () => {
+    expect(SYNC).toContain('ladoDoAtoEhDaAcao(c.nomeClasse, c.numeroProcesso)');
+    expect(SYNC).toContain("const polo: PoloDetectado = lado.daAcao ? noAto : 'INDEFINIDO';");
+  });
+
+  /** O nome do ato de recurso vale; o lado dele, não. */
+  it('a parte vinda só de recurso entra sem lado', () => {
+    expect(SYNC).toContain("polo: lado.daAcao ? String(d?.polo ?? '').trim() : ''");
+  });
+
+  /** E o lado SÓ MELHORA: um ato da ação desbanca o INDEFINIDO do recurso. */
+  it('um ato da ação depois corrige o indefinido', () => {
+    expect(SYNC).toContain("if (alvo.polo === 'INDEFINIDO' && polo !== 'INDEFINIDO') alvo.polo = polo;");
+    expect(SYNC).toContain("const semLado = alvo.partes.findIndex((x) => x.nome === d.nome && !x.polo);");
+  });
+
+  /** INDEFINIDO tem frase própria na tarefa — não vira "ação do sindicato" genérica. */
+  it('a tarefa do robô sabe dizer que o polo não foi informado', () => {
+    expect(SYNC).toContain("INDEFINIDO: 'Ação do sindicato (polo não informado no ato)'");
   });
 });

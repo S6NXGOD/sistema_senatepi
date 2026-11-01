@@ -14,6 +14,7 @@ import { instanciaBaixada } from './utils/audiencia.util';
 import { FONTE_DJEN, SincronizacaoLogService } from './sincronizacao-log.service';
 import { classificarProvidencia } from './utils/providencia.util';
 import { nossoPoloNoAto, type PoloDetectado } from './utils/acao-nossa.util';
+import { ladoDoAtoEhDaAcao } from './utils/lado-do-ato.util';
 import {
   completarPolosQueFaltam,
   type ParteDoCabecalho,
@@ -1196,8 +1197,25 @@ export class DjenSyncService {
       );
 
     for (const c of foraDoAcervo) {
-      const polo = nossoPoloNoAto(c.destinatarios, sigla);
-      if (!polo) continue;
+      const noAto = nossoPoloNoAto(c.destinatarios, sigla);
+      // Sem o sindicato entre os destinatários, o processo não é nosso.
+      if (!noAto) continue;
+      /*
+        E ATO DE RECURSO NÃO DIZ DE QUE LADO A AÇÃO NASCEU.
+
+        Esta linha é a origem de três das cinco fichas do acervo com os polos
+        trocados. A fila anunciava "Ação movida CONTRA o sindicato" lendo o
+        polo de um Recurso Ordinário publicado no número da reclamação — onde
+        quem recorreu aparece como autor — e a pessoa cadastrava acreditando no
+        anúncio. Medido: o lado publicado nessa faixa acerta 39,2%
+        (`lado-do-ato.util`).
+
+        INDEFINIDO já existia no enum para exatamente isto, e a tela já sabe
+        dizê-lo: "Ação do sindicato (polo não informado no ato)". Melhor um
+        rótulo que admite não saber que um que afirma o contrário.
+      */
+      const lado = ladoDoAtoEhDaAcao(c.nomeClasse, c.numeroProcesso);
+      const polo: PoloDetectado = lado.daAcao ? noAto : 'INDEFINIDO';
       const quando = new Date(`${c.dataDisponibilizacao}T00:00:00Z`);
       /*
         AS PARTES SÓ MELHORAM — e antes elas congelavam na PRIMEIRA publicação.
@@ -1212,7 +1230,11 @@ export class DjenSyncService {
       const destinatarios = (
         Array.isArray(c.destinatarios) ? (c.destinatarios as { nome?: unknown; polo?: unknown }[]) : []
       )
-        .map((d) => ({ nome: String(d?.nome ?? '').trim(), polo: String(d?.polo ?? '').trim() }))
+        .map((d) => ({
+          nome: String(d?.nome ?? '').trim(),
+          // Mesma razão de cima: o nome do ato de recurso vale, o lado dele não.
+          polo: lado.daAcao ? String(d?.polo ?? '').trim() : '',
+        }))
         .filter((d) => d.nome);
 
       const atual = porNpu.get(c.numeroProcesso);
@@ -1235,7 +1257,16 @@ export class DjenSyncService {
       alvo.n++;
       if (quando < alvo.de) alvo.de = quando;
       if (quando > alvo.ate) alvo.ate = quando;
+      // O LADO SÓ MELHORA: um ato da ação desbanca o INDEFINIDO de um recurso.
+      if (alvo.polo === 'INDEFINIDO' && polo !== 'INDEFINIDO') alvo.polo = polo;
       for (const d of destinatarios) {
+        if (!d.polo) {
+          // Veio só de recurso: o nome entra, sem lado, e nunca duplica.
+          if (!alvo.partes.some((x) => x.nome === d.nome)) alvo.partes.push(d);
+          continue;
+        }
+        const semLado = alvo.partes.findIndex((x) => x.nome === d.nome && !x.polo);
+        if (semLado >= 0) alvo.partes.splice(semLado, 1);
         const repetida = alvo.partes.some((x) => x.nome === d.nome && x.polo === d.polo);
         if (!repetida) alvo.partes.push(d);
       }

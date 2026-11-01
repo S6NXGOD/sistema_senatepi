@@ -173,6 +173,23 @@ export class PartesController {
     return this.partesDoDiario.emDuvida(processoId);
   }
 
+  /**
+   * O DIÁRIO DIZ QUE ESTAMOS DO OUTRO LADO.
+   *
+   * Rota PRÓPRIA, e não um campo a mais em `partes-do-ato`: aquela devolve um
+   * array puro, e web e API sobem separadas no Railway. Mudar o formato dela
+   * faria a tela velha ler `.length` de um objeto durante a janela de troca —
+   * o painel inteiro sumiria sem erro na tela.
+   *
+   * Devolve `null` quando não há contradição, que é o caso de 183 das 188
+   * fichas.
+   */
+  @Get(':id/nosso-lado')
+  @ApiOperation({ summary: 'Contradição entre o polo gravado na ficha e o que os atos da ação dizem.' })
+  nossoLado(@Param('id') processoId: string) {
+    return this.partesDoDiario.nossoLado(processoId);
+  }
+
   @Get(':id/advogados-do-ato')
   @ApiOperation({ summary: 'Advogados citados no Diário que ainda não foram atribuídos a uma parte.' })
   advogadosDoAtoSemLado(@Param('id') processoId: string) {

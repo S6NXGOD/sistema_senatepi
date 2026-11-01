@@ -357,3 +357,33 @@ describe('as partes vêm do Diário na hora do cadastro', () => {
     expect(DIALOGO).toContain('formatDataPura(diario.ultimaEm)');
   });
 });
+
+/**
+ * NINGUÉM ENTRA NOS DOIS POLOS — com DUAS fontes preenchendo a mesma tela.
+ *
+ * A fila do Diário preenche na abertura, com o polo gravado na sugestão; a
+ * consulta ao Diário responde um segundo depois, com a régua do recurso
+ * aplicada. Elas podem discordar de lado, e o resultado seria a mesma empresa
+ * como autora e ré do próprio processo.
+ */
+describe('duas fontes, um lado só', () => {
+  const DIALOGO = lerCodigo('importar-processo-dialog.tsx');
+
+  it('a consulta ao Diário não põe no polo quem já está no outro', () => {
+    const efeito = DIALOGO.slice(DIALOGO.indexOf('for (const x of r.partes)'));
+    expect(efeito.slice(0, 1800)).toContain(
+      "jaEstaNaLista(x.polo === 'ATIVO' ? reus : poloAtivo, parte)",
+    );
+  });
+
+  /**
+   * E a trava NÃO sobe para `acrescentarNoPolo`: por lá também passa o clique
+   * de quem cadastra uma organização à mão, e recusar um clique em silêncio é
+   * pior que o dado repetido.
+   */
+  it('o clique humano de cadastrar organização continua passando', () => {
+    const fn = DIALOGO.slice(DIALOGO.indexOf('function acrescentarNoPolo'));
+    expect(fn.slice(0, 300)).not.toContain('noOutroLado');
+    expect(DIALOGO).toContain("acrescentarNoPolo(novaOrg?.polo ?? 'PASSIVO'");
+  });
+});

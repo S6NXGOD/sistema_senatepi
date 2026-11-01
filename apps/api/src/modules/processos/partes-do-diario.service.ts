@@ -2,7 +2,11 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { normalizarNome } from './utils/acao-nossa.util';
 import { ladoDoAtoEhDaAcao } from './utils/lado-do-ato.util';
-import { completarPolosQueFaltam, ParteDoCabecalho } from './utils/partes-do-cabecalho.util';
+import {
+  completarPolosQueFaltam,
+  lerPartesDoCabecalho,
+  ParteDoCabecalho,
+} from './utils/partes-do-cabecalho.util';
 import { DjenService } from './djen.service';
 
 /**
@@ -78,6 +82,38 @@ export interface ParteEmDuvida {
   polo: PoloDaParte | null;
   /** Em português, o que impede o sistema de decidir sozinho. */
   porque: string;
+}
+
+/**
+ * O DIÁRIO E A FICHA DISCORDAM SOBRE O NOSSO PRÓPRIO LADO.
+ *
+ * A bússola já detectava isso para se recusar a posicionar os outros; o que
+ * ela não fazia era CONTAR. Das 188 fichas do acervo, 5 estão assim, e nas
+ * cinco quem errou foi a ficha — duas consignações em pagamento em que o
+ * município é o consignante e nós aparecemos como autores, uma ficha montada
+ * a partir do recurso (a EBSERH como autora de uma ação que movemos contra
+ * ela), uma ação civil pública com os 28 autores gravados como réus e um
+ * processo contra a Caixa em que somos o autor e constávamos como réu.
+ *
+ * O sistema NÃO troca o lado: ele mostra a contradição e as palavras do
+ * tribunal ao lado dela. Trocar o autor de um processo é decisão de gente, e
+ * arrumar só o nosso lado deixaria os outros errados — na ação civil pública
+ * seriam 29 nomes.
+ */
+export interface NossoLadoEmDuvida {
+  /** O polo gravado na ficha. */
+  naFicha: PoloDaParte;
+  /** O polo que os atos DA AÇÃO dizem (nunca os de recurso). */
+  noAto: PoloDaParte;
+}
+
+/** O diagnóstico com a prova — o que a ficha mostra. */
+export interface ProvaDoNossoLado extends NossoLadoEmDuvida {
+  /** O cabeçalho do ato, como o tribunal escreveu. Vazio quando não deu para ler. */
+  cabecalho: ParteDoCabecalho[];
+  classeDoAto: string | null;
+  /** Dia da publicação que serve de prova (yyyy-mm-dd). */
+  emDia: string | null;
 }
 
 export interface ResultadoReconciliacao {
@@ -244,7 +280,7 @@ export function lerPartesDoAto(
    * Os advogados DA CASA, como estão no cadastro. Ver a recusa 1-B abaixo.
    */
   advogadosDaCasa: string[],
-): { repor: ParteDoAto[]; duvida: ParteEmDuvida[] } {
+): { repor: ParteDoAto[]; duvida: ParteEmDuvida[]; nossoLado: NossoLadoEmDuvida | null } {
   // 1. Advogado não é parte — o Diário repete o nome dele entre os destinatários.
   const advogados = new Set<string>();
   for (const p of publicacoes) {
@@ -312,7 +348,7 @@ export function lerPartesDoAto(
       doAto.set(k, atual);
     }
   }
-  if (!doAto.size) return { repor: [], duvida: [] };
+  if (!doAto.size) return { repor: [], duvida: [], nossoLado: null };
 
   /** A frase do recurso, montada uma vez — ela é igual para todos os nomes. */
   const porqueRecurso =
@@ -434,7 +470,19 @@ export function lerPartesDoAto(
     }
     repor.push({ nome: e.nome, polo });
   }
-  return { repor, duvida };
+  /*
+    E A CONTRADIÇÃO VIRA RESPOSTA, não só recusa.
+
+    Só quando o ato da ação aponta UM lado: o sindicato nos dois polos é outra
+    coisa (recurso em que ambos recorreram), e ali não há ficha errada a
+    denunciar — há um ato ambíguo, que a frase acima já explica.
+  */
+  const nossoLado: NossoLadoEmDuvida | null =
+    polosDivergem && nossaNoAto!.polos.size === 1
+      ? { naFicha: nossaNaFicha!.polo as PoloDaParte, noAto: [...nossaNoAto!.polos][0] }
+      : null;
+
+  return { repor, duvida, nossoLado };
 }
 
 @Injectable()
@@ -505,6 +553,54 @@ export class PartesDoDiarioService {
   /** O que o ato nomeia e o sistema não soube posicionar — para a ficha mostrar. */
   async emDuvida(processoId: string): Promise<ParteEmDuvida[]> {
     return (await this.ler(processoId)).duvida;
+  }
+
+  /**
+   * "O DIÁRIO DIZ QUE ESTAMOS DO OUTRO LADO" — com as palavras do tribunal.
+   *
+   * O painel de partes em dúvida já pede o lado das OUTRAS partes. O que
+   * faltava era dizer, em voz alta, que a divergência começa no nosso próprio
+   * polo — porque enquanto ela existir nenhum nome é posicionado, e quem olha
+   * a ficha não tinha como saber por quê.
+   *
+   * A prova vem junto: o trecho do cabeçalho do ato, como o tribunal escreveu.
+   * É o que permite decidir em cinco segundos sem abrir o PJe — e é a razão de
+   * esta rota existir separada, em vez de uma frase a mais no painel.
+   *
+   * O sistema NÃO troca nada. Arrumar só o nosso lado deixaria os outros
+   * errados (na ação civil pública do acervo seriam 29 nomes), e trocar o
+   * autor de um processo é decisão de gente.
+   */
+  async nossoLado(processoId: string): Promise<ProvaDoNossoLado | null> {
+    const { nossoLado } = await this.ler(processoId);
+    if (!nossoLado) return null;
+
+    /*
+      Busca própria, e não um `texto: true` no `ler()`: a reconciliação da
+      madrugada chama aquele caminho para 178 processos × 60 publicações, e
+      arrastar o teor integral de tudo para computar uma prova que interessa a
+      5 fichas seria pagar caro pelo caso raro.
+    */
+    const pubs = await this.prisma.comunicacaoDjen.findMany({
+      where: { processoId },
+      select: { texto: true, nomeClasse: true, numeroProcesso: true, dataDisponibilizacao: true },
+      orderBy: { dataDisponibilizacao: 'desc' },
+      take: PUBLICACOES_POR_PROCESSO,
+    });
+
+    for (const c of pubs) {
+      if (!ladoDoAtoEhDaAcao(c.nomeClasse, c.numeroProcesso).daAcao) continue;
+      const cabecalho = lerPartesDoCabecalho(c.texto ?? '');
+      // Prova é o cabeçalho que nomeia OS DOIS lados; um lado só não resolve nada.
+      if (new Set(cabecalho.map((x) => x.polo)).size < 2) continue;
+      return {
+        ...nossoLado,
+        cabecalho,
+        classeDoAto: c.nomeClasse,
+        emDia: c.dataDisponibilizacao.toISOString().slice(0, 10),
+      };
+    }
+    return { ...nossoLado, cabecalho: [], classeDoAto: null, emDia: null };
   }
 
   /**
@@ -690,7 +786,7 @@ export class PartesDoDiarioService {
       this.advogadosDaCasa(),
     ]);
     const sigla = nos?.nomeFantasia ?? null;
-    if (!publicacoes.length) return { repor: [], duvida: [] };
+    if (!publicacoes.length) return { repor: [], duvida: [], nossoLado: null };
     return lerPartesDoAto(
       publicacoes,
       partes,

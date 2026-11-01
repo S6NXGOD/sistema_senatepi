@@ -649,6 +649,22 @@ export function ImportarProcessoDialog({
           const parte: ParteEditavel = ehOSindicato(x.nome, tenant.sigla)
             ? { tipo: 'INSTITUCIONAL', nome: tenant.nome, detalhe: 'O próprio sindicato' }
             : { tipo: 'AVULSA', nome: x.nome, detalhe: 'Como o Diário publicou' };
+          /*
+            NINGUÉM ENTRA NOS DOIS POLOS — a trava vale aqui, não no
+            `acrescentarNoPolo`.
+
+            São duas fontes preenchendo a mesma tela: a fila do Diário, na
+            abertura, com o polo gravado na sugestão; e esta consulta, um
+            segundo depois, com a régua do recurso aplicada. Elas podem
+            discordar de lado, e o resultado seria a MESMA empresa como autora
+            e ré do próprio processo.
+
+            A trava NÃO sobe para `acrescentarNoPolo` porque lá também passa o
+            clique de quem cadastra uma organização à mão: recusar em silêncio
+            um clique humano é pior que o dado repetido. Aqui não há clique —
+            quem chegou primeiro fica, e discordância vira a faixa âmbar.
+          */
+          if (jaEstaNaLista(x.polo === 'ATIVO' ? reus : poloAtivo, parte)) continue;
           acrescentarNoPolo(x.polo, parte);
         }
 

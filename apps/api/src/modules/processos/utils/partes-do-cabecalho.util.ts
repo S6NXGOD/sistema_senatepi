@@ -60,6 +60,21 @@ const ROTULOS: { re: RegExp; polo: 'A' | 'P' }[] = [
   { re: /\bSUSCITAD[AO]S?\s*:/g, polo: 'P' },
   { re: /\bEMBARGANTES?\s*:/g, polo: 'A' },
   { re: /\bEMBARGAD[AO]S?\s*:/g, polo: 'P' },
+  /*
+    CONSIGNAÇÃO EM PAGAMENTO — quem consigna é o AUTOR.
+
+    Faltava, e não era detalhe: os dois únicos processos de consignação do
+    acervo (15 publicações) são exatamente os dois em que a ficha tem os polos
+    trocados. O ato escreve, com todas as letras, "CONSIGNANTE: MUNICIPIO DE
+    COCAL  CONSIGNATÁRIO: SINDICATO (...) E OUTROS (4)" — o município move, os
+    sindicatos respondem — e a ficha diz que o autor somos nós.
+
+    Varri os 2.537 textos atrás de outros rótulos de parte que eu ignorasse:
+    estes dois eram os únicos. LITISCONSORTE, ASSISTENTE, DENUNCIADO e
+    TERCEIRO INTERESSADO não aparecem em nenhuma publicação do acervo.
+  */
+  { re: /\bCONSIGNANTES?\s*:/g, polo: 'A' },
+  { re: /\bCONSIGNAT[AÁ]RI[AO]S?\s*:/g, polo: 'P' },
 ];
 
 /**

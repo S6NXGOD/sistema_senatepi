@@ -98,7 +98,7 @@ describe('só entra publicação de processo cadastrado', () => {
       SYNC.indexOf('private async sugerirAcoesNossas('),
       SYNC.indexOf('private async ingerir('),
     );
-    expect(fn).toContain('if (!polo) continue;');
+    expect(fn).toContain('if (!noAto) continue;');
     /*
       O TEOR NÃO VAI PARA O BANCO — e a asserção mira o que se GRAVA, não a
       palavra. A função lê o cabeçalho do ato desde 31/10/2026 para completar o

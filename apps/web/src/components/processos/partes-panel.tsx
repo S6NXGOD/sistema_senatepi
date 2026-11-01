@@ -16,12 +16,14 @@ import { classesCor } from '@/lib/paleta-cores';
 import { AdicionarParteForm } from './adicionar-parte-form';
 import {
   adicionarParte,
-  advogadosDoAtoSemLado, partesDoAtoEmDuvida,
+  advogadosDoAtoSemLado, partesDoAtoEmDuvida, nossoLadoEmDuvida,
   atualizarParte, definirAdvogadosDoProcesso, formatDocumento, removerParte,
   POLO_COR, POLO_DESCRICAO, POLO_LABEL, TIPO_PARTE_LABEL,
   type AdvogadoCitadoNoAto, type AdvogadoDaParte, type AdvogadoDoProcesso,
   type ParteDoProcesso, type ParteEmDuvida, type PoloProcesso, type PolosProcesso,
+  type ProvaDoNossoLado,
 } from '@/lib/partes';
+import { formatDataPura } from '@/lib/data-pura';
 
 const ORDEM_POLOS: PoloProcesso[] = ['ATIVO', 'PASSIVO', 'TERCEIRO'];
 
@@ -112,6 +114,17 @@ export function PartesPanel({
 
   return (
     <div className="space-y-5">
+      {/*
+        A CONTRADIÇÃO VEM ANTES DE TUDO — ela é sobre o que está logo abaixo.
+
+        Nasceu no fim da aba, junto das outras pendências, e isso estava
+        errado: as pendências dali são "falta alguém, acrescente"; esta diz
+        "o Confronto que você acabou de ler pode estar invertido". Ler primeiro
+        o confronto e descobrir a ressalva três rolagens depois é a mesma
+        armadilha da citação do cabeçalho no modal de importar.
+      */}
+      <NossoLadoEmDuvida processoId={processoId} />
+
       {/* Confronto em destaque — a resposta a "quem processou quem" */}
       <section className="rounded-xl border bg-card p-4">
         <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold">
@@ -678,6 +691,90 @@ function AdvogadosSemLado({
  * colocaria a parte no lado errado da ficha para sempre, e a ficha é o que
  * responde "de quem é este prazo".
  */
+/**
+ * "O DIÁRIO DIZ QUE ESTAMOS DO OUTRO LADO" — e mostra as palavras do tribunal.
+ *
+ * POR QUE ISTO EXISTE
+ * ---------------------------------------------------------------------------
+ * A bússola que compara o nosso polo no ato com o da ficha já existia, mas só
+ * servia para o sistema se CALAR: divergindo, ele parava de posicionar
+ * qualquer parte naquele processo. Quem abria a ficha via a lista de partes em
+ * dúvida crescer sem nunca saber por quê.
+ *
+ * Nas 188 fichas do acervo são 5 casos, e nos 5 quem errou foi a ficha:
+ * duas consignações em pagamento (quem consigna é o município, não nós), uma
+ * ficha montada a partir do recurso — a EBSERH como autora de uma ação que o
+ * sindicato moveu contra ela —, uma ação civil pública com os 28 autores
+ * gravados como réus, e um processo contra a Caixa em que somos o autor.
+ *
+ * O QUE ELE NÃO FAZ: trocar o lado. Arrumar só o nosso deixaria os outros
+ * errados — na ação civil pública seriam 29 nomes — e trocar o autor de um
+ * processo é decisão de gente. O que ele faz é pôr a ficha e o cabeçalho do
+ * ato lado a lado, para a decisão levar cinco segundos em vez de uma ida ao
+ * PJe.
+ */
+function NossoLadoEmDuvida({ processoId }: { processoId: string }) {
+  const { data } = useQuery<ProvaDoNossoLado | null>({
+    queryKey: ['processo', processoId, 'nosso-lado'],
+    queryFn: () => nossoLadoEmDuvida(processoId),
+  });
+  if (!data) return null;
+
+  const dizer = (p: PoloProcesso) => (p === 'ATIVO' ? 'autor' : p === 'PASSIVO' ? 'réu' : 'terceiro');
+
+  return (
+    <section className="rounded-xl border border-amber-300 bg-amber-50/70 p-3 dark:border-amber-900/60 dark:bg-amber-950/20">
+      <h4 className="flex items-start gap-2 text-sm font-semibold text-amber-900 dark:text-amber-200">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>O Diário diz que estamos do outro lado</span>
+      </h4>
+
+      {/* O confronto, em duas caixas — a mesma leitura no celular e no monitor. */}
+      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="rounded-lg border bg-card p-2.5">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Nesta ficha somos</p>
+          <p className="text-sm font-semibold capitalize">{dizer(data.naFicha)}</p>
+        </div>
+        <div className="rounded-lg border bg-card p-2.5">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">No Diário somos</p>
+          <p className="text-sm font-semibold capitalize">{dizer(data.noAto)}</p>
+        </div>
+      </div>
+
+      {/*
+        A PROVA, COM AS PALAVRAS DO TRIBUNAL.
+
+        Sem ela, isto seria a palavra do sistema contra a de quem cadastrou — e
+        quem cadastrou tende a ganhar, com razão. Com o trecho à vista, dá para
+        decidir sem abrir o processo no PJe. Quando o cabeçalho não nomeia os
+        dois lados, o bloco não aparece: meia prova confunde mais que nenhuma.
+      */}
+      {data.cabecalho.length > 0 && (
+        <div className="mt-2">
+          <p className="text-[11px] leading-snug text-amber-900/80 dark:text-amber-200/80">
+            {data.emDia ? `O ato de ${formatDataPura(data.emDia)}` : 'O ato'}
+            {data.classeDoAto ? ` (${data.classeDoAto})` : ''} escreve:
+          </p>
+          <ul className="mt-1 space-y-0.5 rounded-lg border border-dashed bg-background/70 p-2.5">
+            {data.cabecalho.map((x) => (
+              <li key={`${x.polo}-${x.nome}`} className="text-xs leading-snug">
+                <span className="font-semibold uppercase text-muted-foreground">{x.rotulo}: </span>
+                <span className="font-medium">{x.nome}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <p className="mt-2 text-[11px] leading-relaxed text-amber-900/80 dark:text-amber-200/80">
+        Enquanto os dois discordarem, o sistema não posiciona mais ninguém neste processo pelo que o
+        Diário publica. Se a ficha estiver errada, troque o lado das partes abaixo; se estiver
+        certa, é só deixar como está.
+      </p>
+    </section>
+  );
+}
+
 function PartesEmDuvida({
   processoId,
   podeEditar,

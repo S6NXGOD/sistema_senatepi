@@ -76,3 +76,61 @@ describe('advogados sem lado', () => {
     expect(UTIL_API.toLowerCase()).toContain('polo');
   });
 });
+
+/**
+ * "O DIÁRIO DIZ QUE ESTAMOS DO OUTRO LADO."
+ *
+ * A bússola que compara o nosso polo no ato com o da ficha só servia para o
+ * sistema se calar: divergindo, ele parava de posicionar qualquer parte — e a
+ * ficha crescia em dúvidas sem explicar por quê. São 5 fichas no acervo e, nas
+ * cinco, quem errou foi a ficha.
+ */
+describe('o nosso lado em dúvida na ficha', () => {
+  const BLOCO = PAINEL.slice(PAINEL.indexOf('function NossoLadoEmDuvida'));
+
+  /*
+    E ELA VEM ANTES DO CONFRONTO, não no fim da aba junto das outras
+    pendências: "falta alguém, acrescente" pode esperar; "o que você acabou de
+    ler pode estar invertido", não.
+  */
+  it('a faixa existe e vem ANTES do Confronto', () => {
+    expect(PAINEL).toContain('function NossoLadoEmDuvida');
+    expect(PAINEL.indexOf('<NossoLadoEmDuvida')).toBeLessThan(PAINEL.indexOf('Confronto em destaque'));
+    expect(PAINEL.indexOf('<NossoLadoEmDuvida')).toBeLessThan(PAINEL.indexOf('<PartesEmDuvida'));
+  });
+
+  /** Sem contradição não há faixa: 183 das 188 fichas não mostram nada. */
+  it('some quando não há contradição', () => {
+    expect(BLOCO.slice(0, 2200)).toContain('if (!data) return null;');
+  });
+
+  /**
+   * A PROVA É O QUE PERMITE DECIDIR SEM ABRIR O PJE. Sem ela, isto seria a
+   * palavra do sistema contra a de quem cadastrou.
+   */
+  it('mostra o cabeçalho do ato, com o rótulo do tribunal', () => {
+    expect(BLOCO).toContain('data.cabecalho.length > 0');
+    expect(BLOCO).toContain('{x.rotulo}');
+    expect(BLOCO).toContain('{x.nome}');
+  });
+
+  it('a data da prova usa formatDataPura — a ingênua anda um dia', () => {
+    expect(BLOCO).toContain('formatDataPura(data.emDia)');
+  });
+
+  /**
+   * NÃO TROCA O LADO. Arrumar só o nosso deixaria os outros errados — na ação
+   * civil pública do acervo seriam 29 nomes — e trocar o autor de um processo
+   * é decisão de gente.
+   */
+  it('sugere, não decide: nenhum botão de corrigir sozinho', () => {
+    expect(BLOCO.slice(0, 4200)).not.toContain('<button');
+    expect(BLOCO).toContain('troque o lado das partes abaixo');
+  });
+
+  it('a rota é própria, para não quebrar a janela de troca do deploy', () => {
+    expect(LIB).toContain("`/processos/${processoId}/nosso-lado`");
+    // A antiga continua devolvendo array puro — a tela velha lê `.length` dela.
+    expect(LIB).toContain("`/processos/${processoId}/partes-do-ato`");
+  });
+});

@@ -235,7 +235,7 @@ describe('a parte que o Diário nomeia entra na ficha', () => {
   });
 
   it('sem publicação, não faz nada', () => {
-    expect(ler([], naFicha([]), new Set())).toEqual({ repor: [], duvida: [] });
+    expect(ler([], naFicha([]), new Set())).toEqual({ repor: [], duvida: [], nossoLado: null });
   });
 
   /**
@@ -259,7 +259,7 @@ describe('a parte que o Diário nomeia entra na ficha', () => {
       ]),
       new Set(),
     );
-    expect(r).toEqual({ repor: [], duvida: [] });
+    expect(r).toEqual({ repor: [], duvida: [], nossoLado: null });
   });
 });
 
@@ -459,5 +459,66 @@ describe('advogado da casa', () => {
       ['Ana'],
     );
     expect(r.repor).toEqual([{ nome: 'ANA SOUZA SERVICOS MEDICOS LTDA', polo: 'PASSIVO' }]);
+  });
+});
+
+/**
+ * A CONTRADIÇÃO VIRA RESPOSTA — e não só recusa.
+ *
+ * A bússola sempre soube que a ficha e o Diário discordavam; ela usava isso
+ * para se calar. Quem abria a ficha via a lista de dúvidas crescer sem saber
+ * por quê. Agora ela DIZ, e a ficha mostra o cabeçalho do ato ao lado.
+ */
+describe('o nosso lado em dúvida', () => {
+  it('ficha e ato de acordo: não há nada a denunciar', () => {
+    const r = ler(
+      [pub([{ nome: NOS, polo: 'A' }, { nome: 'MUNICIPIO DE COCAL', polo: 'P' }])],
+      naFicha([[NOS_CADASTRO, 'ATIVO', true]]),
+    );
+    expect(r.nossoLado).toBeNull();
+  });
+
+  /* Produção: as duas consignações em pagamento do acervo. */
+  it('ficha diz autor, ato da ação diz réu: a contradição é devolvida', () => {
+    const r = ler(
+      [pub([{ nome: 'MUNICIPIO DE COCAL', polo: 'A' }, { nome: NOS, polo: 'P' }], [], {
+        nomeClasse: 'CONSIGNAÇÃO EM PAGAMENTO',
+        numeroProcesso: '00013103620165220101',
+      })],
+      naFicha([[NOS_CADASTRO, 'ATIVO', true]]),
+    );
+    expect(r.nossoLado).toEqual({ naFicha: 'ATIVO', noAto: 'PASSIVO' });
+  });
+
+  /*
+    E O RECURSO NÃO DENUNCIA NINGUÉM. Lá o lado é o da posição recursal, e
+    discordar da ficha é o esperado — não é ficha errada.
+  */
+  it('só ato de recurso não acusa a ficha', () => {
+    const r = ler(
+      [pubDeRecurso([{ nome: 'EMPRESA X', polo: 'A' }, { nome: NOS, polo: 'P' }])],
+      naFicha([[NOS_CADASTRO, 'ATIVO', true]]),
+    );
+    expect(r.nossoLado).toBeNull();
+  });
+
+  /* O sindicato nos dois polos é ato ambíguo, não ficha errada. */
+  it('sindicato nos dois polos do mesmo ato não acusa a ficha', () => {
+    const r = ler(
+      [
+        pub([{ nome: NOS, polo: 'A' }, { nome: 'EMPRESA X', polo: 'P' }]),
+        pub([{ nome: NOS, polo: 'P' }, { nome: 'EMPRESA X', polo: 'A' }]),
+      ],
+      naFicha([[NOS_CADASTRO, 'ATIVO', true]]),
+    );
+    expect(r.nossoLado).toBeNull();
+  });
+
+  it('sem parte institucional na ficha, não há o que comparar', () => {
+    const r = ler(
+      [pub([{ nome: NOS, polo: 'P' }])],
+      naFicha([['MARIA DAS GRACAS', 'ATIVO']]),
+    );
+    expect(r.nossoLado).toBeNull();
   });
 });

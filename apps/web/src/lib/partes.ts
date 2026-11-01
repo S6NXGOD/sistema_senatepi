@@ -298,6 +298,28 @@ export async function partesDoAtoEmDuvida(processoId: string): Promise<ParteEmDu
   return (await api.get(`/processos/${processoId}/partes-do-ato`)).data;
 }
 
+/**
+ * O DIÁRIO DIZ QUE ESTAMOS DO OUTRO LADO — com o trecho do ato como prova.
+ *
+ * `null` em 183 das 188 fichas. Nas 5 restantes, quem errou foi a ficha: duas
+ * consignações em pagamento em que o município é quem consigna, uma ficha
+ * montada a partir do recurso, uma ação civil pública com os autores gravados
+ * como réus e um processo contra a Caixa.
+ */
+export interface ProvaDoNossoLado {
+  naFicha: PoloProcesso;
+  noAto: PoloProcesso;
+  /** O cabeçalho do ato, como o tribunal escreveu. Vazio quando não deu para ler. */
+  cabecalho: { polo: 'A' | 'P'; nome: string; rotulo: string }[];
+  classeDoAto: string | null;
+  /** Dia da publicação que serve de prova (yyyy-mm-dd). */
+  emDia: string | null;
+}
+
+export async function nossoLadoEmDuvida(processoId: string): Promise<ProvaDoNossoLado | null> {
+  return (await api.get(`/processos/${processoId}/nosso-lado`)).data ?? null;
+}
+
 /** Envia a lista COMPLETA (substitui a atual) e quem é o responsável. */
 export async function definirAdvogadosDoProcesso(
   processoId: string,
