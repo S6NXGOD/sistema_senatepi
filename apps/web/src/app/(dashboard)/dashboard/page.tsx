@@ -2876,13 +2876,14 @@ function SaudeDasIntegracoes({
             )}
             {/*
               O BOTÃO DIZ QUANTO CUSTA — e diz nos dois estados, não só num
-              deles. Um clique que segura a tela por um minuto sem avisar é um
-              clique que ninguém dá duas vezes.
+              deles. A frase prometia "um minuto" desde que a rodada tinha uma
+              dúzia de consultas; o aviso do clique foi corrigido e esta ficou
+              para trás. Medido em 45 noites: mediana de 13 minutos.
             */}
             {i.fonte === 'DJEN' && podeVarrerDjen && (
               <span className="mt-0.5 block text-[11px] opacity-80">
-                Buscar agora consulta o Diário para todos os advogados — leva cerca
-                de um minuto.
+                Buscar agora consulta o Diário para todos os advogados em segundo
+                plano: leva uns 15 minutos, e dá para seguir usando o sistema.
               </span>
             )}
           </AlertBar>
