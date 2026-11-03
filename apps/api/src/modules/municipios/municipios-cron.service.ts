@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { OrigemSincronizacao } from '@prisma/client';
-import { JOB_SICONFI_SYNC, comTravaDeJob } from '@core/infra';
+import { JOB_DATAJUD_SYNC, JOB_SICONFI_SYNC, comTravaDeJob } from '@core/infra';
 import { PrismaService } from '../../prisma/prisma.service';
 import { pularJobSemModulo } from '../../tenant/job-do-modulo';
 import { integracaoAtiva } from '../../tenant/tenant.config';
@@ -51,7 +51,26 @@ export class MunicipiosCronService {
       this.prisma,
       JOB_SICONFI_SYNC,
       this.logger,
-      { ttlMinutos: this.TRAVA_TTL_MIN },
+      {
+        ttlMinutos: this.TRAVA_TTL_MIN,
+        /*
+          O SICONFI COMEÇA ÀS 03:00 E O DATAJUD DURA 101 MINUTOS DE MEDIANA —
+          ou seja, quase toda noite eles rodavam juntos.
+
+          Aqui não há cota compartilhada (um fala com o Tesouro, o outro com o
+          CNJ), mas há banco e CPU do mesmo contêiner, e a varredura do DataJud
+          é a que tem prazo: ela precisa acabar antes das 05:00 para o Diário
+          começar limpo. Ceder a vez de vez em quando é mais barato que
+          competir toda madrugada.
+
+          Teto menor que o do Diário (60min): os dados do Tesouro mudam uma vez
+          por bimestre, então uma rodada adiada não perde nada — e às 04:00 o
+          DataJud ou já acabou, ou vai entrar na janela do Diário de qualquer
+          jeito.
+        */
+        esperaPor: JOB_DATAJUD_SYNC,
+        esperaMaxMinutos: 60,
+      },
       async () => {
         /*
           O CASAMENTO roda mesmo com a integração do Tesouro desligada: ele é

@@ -238,3 +238,52 @@ describe('o aviso que não pede nada ocupa uma linha', () => {
     expect(TELA).toContain('ela acontece toda madrugada');
   });
 });
+
+/**
+ * INSTÁVEL É TELEMETRIA; PARADA É RISCO.
+ *
+ * O dono, em 03/11/2026, olhando "O Diário de Justiça recusou 1 das 1 leituras
+ * registradas hoje": *"esse tipo de mensagem talvez não seja interessante ao
+ * usuário normal, a não ser para o administrador"*. Ele tem razão sobre a
+ * instabilidade — é a proporção de tentativas que não voltaram, e faixa âmbar
+ * que não pede nada a quem lê ensina a pular faixa âmbar.
+ */
+describe('quem vê o estado das integrações', () => {
+  it('a instabilidade é só de quem administra a integração', () => {
+    expect(TELA).toContain("cuidarDasIntegracoes: role === 'ADMINISTRADOR',");
+    expect(TELA).toContain("(i.situacao !== 'INSTAVEL' || !!cuidaDasIntegracoes)");
+  });
+
+  /*
+    E O ADVOGADO JÁ NÃO VIA NADA DISTO: a API manda `integracoes: null` fora da
+    gestão (`ehGestao`). O print que originou o pedido era o painel do próprio
+    administrador. Quem muda de fato é a COORDENAÇÃO — que também não pode
+    apertar "Buscar agora", porque a rota é `@Roles(ADMINISTRADOR)`.
+  */
+  it('fora da gestão a API nem manda o dado', () => {
+    const api = readFileSync(
+      resolve(__dirname, '../../../../../api/src/modules/dashboard/dashboard.module.ts'),
+      'utf8',
+    );
+    expect(api).toContain('integracoes: ehGestao ? saudeSincronizacao : null');
+  });
+
+  /*
+    E A PARADA CONTINUA SENDO DE TODOS: sem leitura do Diário nenhuma tarefa
+    nova nasce, e a agenda vazia se lê como "não há o que fazer". Esse silêncio
+    é o pior desfecho e precisa de voz em toda tela.
+  */
+  it('a parada não é filtrada por perfil', () => {
+    const filtro = TELA.slice(
+      TELA.indexOf('const problemas = (data.integracoes'),
+      TELA.indexOf('if (problemas.length === 0)'),
+    );
+    expect(filtro).toContain("i.situacao === 'PARADA'");
+    expect(filtro).not.toContain("'PARADA' && !!cuidaDasIntegracoes");
+  });
+
+  /** Botão que devolve 403 é pior que botão ausente — a regra não mudou. */
+  it('o botão de buscar continua só do Administrador', () => {
+    expect(TELA).toContain("varrerDjen: role === 'ADMINISTRADOR'");
+  });
+});

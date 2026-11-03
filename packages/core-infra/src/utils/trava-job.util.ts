@@ -70,6 +70,35 @@ export interface OpcoesTrava {
    * mudar a consulta de tomada, que é a que sustenta a varredura noturna.
    */
   cedeA?: string;
+  /**
+   * Nome de OUTRA trava pela qual este job ESPERA, em vez de desistir.
+   *
+   * POR QUE NÃO BASTAVA O `cedeA`. Ele pula a vez, e pular a vez de um cron
+   * DIÁRIO é perder a noite inteira. Medido em 03/11/2026 sobre 30 noites: em
+   * **3 delas (10%)** a varredura do DataJud ainda estava rodando às 05:00,
+   * quando a do Diário começa — 207, 197 e 208 minutos, contra uma mediana de
+   * 101. O p90 (197min) já estoura a janela de 180 entre os dois horários.
+   *
+   * Nessas três noites as duas rodadas disputaram a MESMA cota do CNJ (20
+   * consultas por minuto, serial e compartilhada) — é a origem dos 38% de 429
+   * que já custaram uma colheita.
+   *
+   * Esperar é melhor que pular PORQUE A SEGUNDA RODADA AINDA VALE: o Diário
+   * publica em D+0 e perder a noite custa prazo; começar 40 minutos mais tarde
+   * não custa nada. Quem não pode esperar (uma tela com gente olhando) usa
+   * `cedeA`.
+   */
+  esperaPor?: string;
+  /**
+   * Teto da espera, em minutos. Obrigatório junto com `esperaPor`.
+   *
+   * Espera sem teto é job que some: se o outro travar e a linha ficar até
+   * expirar, este ficaria parado o TTL inteiro do vizinho. Estourado o teto,
+   * ele **roda assim mesmo** — a cota do CNJ é serial, então sobreposição
+   * atrasa mas não estoura, e deixar o Diário sem leitura é o único desfecho
+   * que custa prazo.
+   */
+  esperaMaxMinutos?: number;
 }
 
 /**
@@ -79,13 +108,51 @@ export interface OpcoesTrava {
  * Erro ao TOMAR a trava propaga em vez de virar "pulei": um robô que não roda
  * porque o banco caiu precisa aparecer como falha, não como decisão.
  */
+/** Quanto tempo entre duas perguntas "a outra trava já saiu?". */
+const INTERVALO_DA_ESPERA_MS = 60_000;
+
+/** `setTimeout` como promessa — só para a espera abaixo ficar legível. */
+const dormir = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 export async function comTravaDeJob<T>(
   prisma: PrismaClient,
   nome: string,
   logger: Logger,
-  { ttlMinutos, cedeA }: OpcoesTrava,
+  { ttlMinutos, cedeA, esperaPor, esperaMaxMinutos }: OpcoesTrava,
   tarefa: () => Promise<T>,
 ): Promise<{ executou: true; resultado: T } | { executou: false }> {
+  /*
+    A FILA DOS CRONS — este job espera o vizinho terminar antes de começar.
+
+    Pergunta a cada minuto, e não num laço apertado: o que se espera aqui dura
+    dezenas de minutos, e uma consulta por minuto é barato o bastante para não
+    aparecer em lugar nenhum.
+  */
+  if (esperaPor && esperaMaxMinutos) {
+    const ate = Date.now() + esperaMaxMinutos * 60_000;
+    let avisou = false;
+    for (;;) {
+      const vigente = await prisma.$queryRaw<{ vigente: number }[]>`
+        SELECT 1 AS "vigente" FROM travas_job
+         WHERE "nome" = ${esperaPor} AND "expira_em" >= now()
+         LIMIT 1
+      `;
+      if (!vigente.length) break;
+      if (Date.now() >= ate) {
+        logger.warn(
+          `[${nome}] A trava "${esperaPor}" não saiu em ${esperaMaxMinutos}min — ` +
+            'começando assim mesmo, para não perder a rodada.',
+        );
+        break;
+      }
+      if (!avisou) {
+        logger.log(`[${nome}] "${esperaPor}" ainda está rodando — aguardando a vez.`);
+        avisou = true;
+      }
+      await dormir(INTERVALO_DA_ESPERA_MS);
+    }
+  }
+
   if (cedeA) {
     // Leitura simples e separada, e não um INSERT condicional: a consulta de
     // tomada abaixo é a que já derrubou a varredura noturna uma vez (o `::int`),

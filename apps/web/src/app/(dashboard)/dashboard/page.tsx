@@ -96,6 +96,28 @@ export default function DashboardPage() {
         Botão que devolve 403 é pior que botão ausente — já entreguei um assim.
       */
       varrerDjen: role === 'ADMINISTRADOR',
+      /*
+        QUEM PODE AGIR SOBRE A INTEGRAÇÃO — e só a esse a telemetria interessa.
+
+        O dono, em 03/11/2026, olhando "O Diário de Justiça recusou 1 das 1
+        leituras registradas hoje": *"esse tipo de mensagem talvez não seja
+        interessante ao usuário normal, a não ser para o administrador"*. Ele
+        tem razão sobre a INSTABILIDADE: é a proporção de tentativas que não
+        voltaram, ninguém fora da administração pode fazer nada com isso, e
+        faixa âmbar que não pede nada a quem lê ensina a pular faixa âmbar.
+
+        A PARADA é outra coisa e continua para todo mundo — ver o componente.
+      */
+      /*
+        SÓ O ADMINISTRADOR — e a descoberta foi que o advogado JÁ não via.
+
+        A API manda `integracoes: null` fora da gestão (`ehGestao`), então
+        advogado e triagem nunca viram esta faixa: o print do dono era o painel
+        dele próprio. O que muda de fato é a COORDENAÇÃO, que também não pode
+        apertar "Buscar agora" (a rota é `@Roles(ADMINISTRADOR)`) — telemetria
+        sem botão é o mesmo alarme sem saída, só que para outra pessoa.
+      */
+      cuidarDasIntegracoes: role === 'ADMINISTRADOR',
     }),
     [role, perms],
   );
@@ -287,7 +309,8 @@ function Conteudo({
 }: {
   data: ResumoDashboard;
   pode: Record<
-    'processos' | 'atendimentos' | 'agenda' | 'filiados' | 'escalas' | 'radarAudiencias' | 'varrerDjen',
+    | 'processos' | 'atendimentos' | 'agenda' | 'filiados' | 'escalas'
+    | 'radarAudiencias' | 'varrerDjen' | 'cuidarDasIntegracoes',
     boolean
   >;
   role: PerfilUsuario;
@@ -621,7 +644,11 @@ function Conteudo({
       */}
       {/* A fonte externa caiu? Vem antes de tudo que depende dela — inclusive
           antes do aviso do robô, que só diz se a varredura rodou. */}
-      <SaudeDasIntegracoes data={data} podeVarrerDjen={pode.varrerDjen} />
+      <SaudeDasIntegracoes
+        data={data}
+        podeVarrerDjen={pode.varrerDjen}
+        cuidaDasIntegracoes={pode.cuidarDasIntegracoes}
+      />
 
       {/*
         A FILA DO DIÁRIO VOLTOU AO PAINEL — COMO CARD, e nunca como faixa.
@@ -1295,8 +1322,14 @@ function PublicacoesDjen({
         {uteis != null
           ? `há ${uteis} dia${uteis === 1 ? '' : 's'} útil${uteis === 1 ? '' : 'eis'}`
           : desde}
-        . O Diário não circula no fim de semana, então a conta já pula sábado e
-        domingo — vale conferir a integração.
+        {/*
+          A CONTA APRENDEU FERIADO EM 03/11/2026 (`dashboard/feriados.ts`), e a
+          frase precisava acompanhar: dizer só "fim de semana" deixaria o leitor
+          achar que a terça de Finados entrou na conta. Ver
+          `senatepi-feriado-nao-e-silencio`.
+        */}
+        . O Diário não circula no fim de semana nem em feriado, e a conta já
+        pula os dois — vale conferir a integração.
       </AlertBar>
     );
   }
@@ -1438,7 +1471,15 @@ function AvisoRobo({ robo, resumido }: { robo: ResumoDashboard['robo']; resumido
       </AlertBar>
     ) : situacao === 'ATRASADO' ? (
       <AlertBar tom="atencao" href="/processos" acao="Ver processos">
-        A varredura do DataJud não roda desde {desde}. Audiências e prazos
+        {/*
+          "DESDE HÁ 3 DIAS" ficou na tela do advogado até 03/11/2026.
+
+          `idadeDoDado` já devolve a expressão inteira ("há 3 dias"), e o
+          "desde" na frente dobrava a preposição. Aqui a frase só entra no
+          estado ATRASADO, que é de dois dias para cima — então `desde` é
+          sempre "há N dias" e tirar o "desde" não quebra nenhuma variação.
+        */}
+        A varredura do DataJud não roda {desde}. Audiências e prazos
         podem estar desatualizados.
       </AlertBar>
     ) : (
@@ -2665,10 +2706,20 @@ const O_QUE_A_FONTE_TRAZ: Record<
 function SaudeDasIntegracoes({
   data,
   podeVarrerDjen,
+  cuidaDasIntegracoes,
 }: {
   data: ResumoDashboard;
   /** Só o Administrador dispara a varredura completa (a rota exige o perfil). */
   podeVarrerDjen?: boolean;
+  /**
+   * Administrador e Coordenação — os únicos que podem fazer algo a respeito.
+   *
+   * A INSTABILIDADE É TELEMETRIA e só aparece para eles. A PARADA aparece para
+   * todos, porque ali o risco é outro: sem leitura do Diário NENHUMA tarefa
+   * nova nasce, e o advogado lê a agenda vazia como "não há o que fazer". Esse
+   * silêncio é o pior desfecho possível e precisa de voz em toda tela.
+   */
+  cuidaDasIntegracoes?: boolean;
 }) {
   const qc = useQueryClient();
 
@@ -2733,7 +2784,20 @@ function SaudeDasIntegracoes({
   const problemas = (data.integracoes ?? []).filter(
     (i) =>
       (i.situacao === 'PARADA' || i.situacao === 'INSTAVEL' || i.situacao === 'NAO_RODOU') &&
-      !(i.fonte === 'DATAJUD' && i.situacao === 'INSTAVEL' && aFaixaDosProcessosVaiFalar),
+      !(i.fonte === 'DATAJUD' && i.situacao === 'INSTAVEL' && aFaixaDosProcessosVaiFalar) &&
+      /*
+        INSTÁVEL É TELEMETRIA; PARADA É RISCO — e por isso só uma delas é de
+        todo mundo (03/11/2026).
+
+        "O Diário de Justiça recusou 1 das 1 leituras registradas hoje" mede a
+        proporção de tentativas que não voltaram. Para quem não administra a
+        integração isso é um número sem ação possível, e faixa âmbar sem ação
+        é o treino perfeito para ignorar a próxima.
+
+        PARADA e NÃO RODOU continuam para todos: sem leitura do Diário nenhuma
+        tarefa nova nasce, e a agenda vazia se lê como "não há o que fazer".
+      */
+      (i.situacao !== 'INSTAVEL' || !!cuidaDasIntegracoes),
   );
   if (problemas.length === 0) return null;
 

@@ -1,4 +1,4 @@
-import { JOB_DJEN_SYNC, comTravaDeJob } from '@core/infra';
+import { JOB_DATAJUD_SYNC, JOB_DJEN_SYNC, comTravaDeJob } from '@core/infra';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { OrigemSincronizacao } from '@prisma/client';
@@ -75,7 +75,29 @@ export class DjenCronService {
       this.prisma,
       JOB_DJEN_SYNC,
       this.logger,
-      { ttlMinutos: this.TRAVA_TTL_MIN },
+      {
+        ttlMinutos: this.TRAVA_TTL_MIN,
+        /*
+          O DIÁRIO ESPERA O DATAJUD TERMINAR — 03/11/2026.
+
+          Os dois puxam da MESMA cota do CNJ (20 consultas por minuto, serial e
+          compartilhada por IP), e em 3 das 30 noites medidas o DataJud ainda
+          estava rodando às 05:00: 207, 197 e 208 minutos, contra 101 de
+          mediana. As duas rodadas disputando é a origem dos 38% de 429 que já
+          custaram uma colheita inteira.
+
+          ESPERAR, E NÃO PULAR (`cedeA`): pular a vez de um cron diário é
+          perder a noite, e o Diário publica em D+0 — é o dado que vira prazo.
+          Começar 40 minutos mais tarde não custa nada; não começar, custa.
+
+          O teto de 90 minutos é a garantia de que o Diário nunca fica refém:
+          estourado, ele roda assim mesmo. A cota serial faz a sobreposição
+          atrasar, não estourar — e ficar sem leitura é o único desfecho que
+          custa prazo.
+        */
+        esperaPor: JOB_DATAJUD_SYNC,
+        esperaMaxMinutos: 90,
+      },
       async () => {
         const inicio = Date.now();
         try {

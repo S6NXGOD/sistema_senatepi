@@ -192,7 +192,20 @@ export class ProcessosCronService {
    * consulta, que o CNJ responde em 10–25s nos casos ruins); 3h dão folga larga
    * sobre o acervo atual sem chegar perto do intervalo de 24h entre execuções.
    */
-  private readonly TRAVA_TTL_MIN = 180;
+  /**
+   * O TTL EXPIRAVA NO MEIO DA PRÓPRIA RODADA — 03/11/2026.
+   *
+   * Eram 180 minutos. Medido em 30 noites: mediana 101min, p90 197min e
+   * **máximo 208min**. Em três noites (23, 28 e 29/10) a varredura passou do
+   * prazo da própria trava, e a partir dali a linha estava livre: outra
+   * réplica podia entrar e varrer o acervo em paralelo — o dobro de chamadas
+   * ao CNJ, que é exatamente o que esta trava existe para impedir.
+   *
+   * Duzentos e quarenta é o máximo observado mais 32 minutos de folga, e
+   * continua curto em relação às 24h entre execuções: uma rodada perdida
+   * nunca bloqueia a próxima.
+   */
+  private readonly TRAVA_TTL_MIN = 240;
 
   constructor(
     private readonly prisma: PrismaService,

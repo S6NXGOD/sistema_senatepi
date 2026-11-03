@@ -351,3 +351,68 @@ describe('a rodada pulada deixa linha no log', () => {
     expect(logSync.registrar).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * A FILA DOS CRONS — esperar a vez, e não perder a noite.
+ *
+ * O dono, em 03/11/2026: *"começou o do CNJ e ainda não terminou no horário
+ * agendado do DJEN, o do DJEN fica em espera até terminar e rodar ele"*.
+ *
+ * MEDIDO em 30 noites antes de mexer: em **3 delas (10%)** a varredura do
+ * DataJud ainda estava rodando às 05:00 — 207, 197 e 208 minutos, contra 101
+ * de mediana. O p90 (197min) já estoura a janela de 180 entre os dois
+ * horários, e as duas puxam da MESMA cota do CNJ.
+ */
+describe('a fila dos crons noturnos', () => {
+  const TRAVA = readFileSync(
+    join(__dirname, '../../../../../packages/core-infra/src/utils/trava-job.util.ts'),
+    'utf8',
+  );
+  const DJEN = readFileSync(join(__dirname, 'djen-cron.service.ts'), 'utf8');
+  const SICONFI = readFileSync(join(__dirname, '../municipios/municipios-cron.service.ts'), 'utf8');
+  const DATAJUD = readFileSync(join(__dirname, 'processos-cron.service.ts'), 'utf8');
+
+  it('a trava sabe ESPERAR, e não só ceder a vez', () => {
+    expect(TRAVA).toContain('esperaPor?: string;');
+    expect(TRAVA).toContain('esperaMaxMinutos?: number;');
+    expect(TRAVA).toContain('await dormir(INTERVALO_DA_ESPERA_MS)');
+  });
+
+  /*
+    ESPERA SEM TETO É JOB QUE SOME. Estourado o teto ele roda assim mesmo: a
+    cota do CNJ é serial, então sobreposição atrasa e não estoura — e ficar
+    sem leitura do Diário é o único desfecho que custa prazo.
+  */
+  it('estourado o teto, roda assim mesmo — e avisa', () => {
+    expect(TRAVA).toContain('começando assim mesmo, para não perder a rodada');
+  });
+
+  it('o Diário espera o DataJud, com teto de 90 minutos', () => {
+    expect(DJEN).toContain('esperaPor: JOB_DATAJUD_SYNC');
+    expect(DJEN).toContain('esperaMaxMinutos: 90');
+  });
+
+  it('o SICONFI também espera — ele começa às 03:00, no meio do DataJud', () => {
+    expect(SICONFI).toContain('esperaPor: JOB_DATAJUD_SYNC');
+    expect(SICONFI).toContain('esperaMaxMinutos: 60');
+  });
+
+  /*
+    E O DATAJUD NÃO ESPERA NINGUÉM: ele é o primeiro da fila. Um job que
+    esperasse o vizinho que espera por ele travaria os dois.
+  */
+  it('o DataJud não espera ninguém — senão a fila vira impasse', () => {
+    expect(DATAJUD).not.toContain('esperaPor:');
+  });
+
+  /**
+   * O TTL EXPIRAVA NO MEIO DA PRÓPRIA RODADA.
+   *
+   * Eram 180 minutos para uma varredura que chegou a 208. Passado o prazo, a
+   * linha ficava livre e outra réplica podia entrar — o dobro de chamadas ao
+   * CNJ, que é exatamente o que a trava existe para impedir.
+   */
+  it('o TTL do DataJud cobre a pior rodada observada', () => {
+    expect(DATAJUD).toContain('private readonly TRAVA_TTL_MIN = 240;');
+  });
+});
