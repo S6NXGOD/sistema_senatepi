@@ -33,8 +33,8 @@ const CRON = semComentarios(
  *
  *  1. O Diário passou a ESPERAR a vez em vez de começar às 05:00, então não
  *     há mais janela para proteger.
- *  2. Medido em 45 noites, o corte **nunca disparou**. As rodadas desde que
- *     ele entrou: 92, 94, 95, 99 e 110 minutos. Ele só agiria nas noites em
+ *  2. Nas 5 noites desde que entrou, o corte **nunca disparou**. As rodadas:
+ *     92, 94, 95, 99 e 110 minutos. Ele só agiria nas noites em
  *     que o CNJ fica lento (149s e 160s por consulta em 28 e 29/10, contra
  *     33s em 03/11) — e nelas abandonaria ~100 dos 160 processos.
  *

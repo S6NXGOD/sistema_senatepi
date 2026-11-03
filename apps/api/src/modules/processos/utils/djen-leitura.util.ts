@@ -69,7 +69,7 @@ export const DJEN_HISTORICO_MAX_PAGINAS_PADRAO = 10;
  *
  * A trava passou a bater o ponto (ver `comTravaDeJob`), então ela não expira
  * mais com o job vivo e não há nada para o orçamento proteger. E ele nunca
- * disparou em 45 noites: a rodada do Diário leva de 1 a 19 minutos.
+ * disparou em 45 noites: a rodada do Diário leva de 7 a 42 minutos (mediana 13).
  *
  * No lugar dele: `DJEN_RECUSAS_SEGUIDAS_PARA_PARAR` (a fonte fechou) e
  * `DJEN_LIMITE_ABSOLUTO_MIN` (laço preso). A ordem do dono foi explícita —
@@ -81,10 +81,9 @@ export const DJEN_HISTORICO_MAX_PAGINAS_PADRAO = 10;
  * QUANTAS RECUSAS SEGUIDAS DO DIÁRIO ENCERRAM A RODADA — 03/11/2026.
  *
  * O orçamento de tempo acima virou trava de segurança (`DJEN_LIMITE_ABSOLUTO_MIN`),
- * porque o relógio nunca foi o problema: a rodada do Diário leva 1 a 19 minutos
+ * porque o relógio nunca foi o problema: a rodada do Diário leva de 7 a 42 minutos
  * e o corte de 150 nunca disparou em 45 noites. O que acontece de verdade é a
- * fonte FECHAR — em 02 e 03/11 as 168 consultas da noite falharam, todas elas,
- * com 403 de bloqueio de origem.
+ * fonte FECHAR: em 10 das 45 noites a rodada inteira falhou.
  *
  * Doze é mais que o acervo de advogados consultados por noite (a passada 1 faz
  * uma chamada por OAB), então uma sequência desse tamanho não é azar: é porta
@@ -97,7 +96,7 @@ export const DJEN_RECUSAS_SEGUIDAS_PARA_PARAR = 12;
  * Trava de segurança da rodada do Diário, em minutos — NÃO é orçamento.
  *
  * O pior caso teórico da leitura é ~220 minutos (tudo no teto de páginas); o
- * caso real é 1 a 19. Oito horas é quase o dobro do pior teórico e ainda deixa
+ * caso real, de 7 a 42. Oito horas é quase o dobro do pior teórico e ainda deixa
  * a madrugada seguinte livre. Chegar aqui não é lentidão: é laço preso.
  */
 export const DJEN_LIMITE_ABSOLUTO_MIN = 8 * 60;

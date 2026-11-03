@@ -151,6 +151,28 @@ describe('a paginação diz se leu tudo', () => {
     expect(fetchFalso).toHaveBeenCalledTimes(3);
   });
 
+  /*
+    DE QUEM VEIO O 403 — as três causas têm três consertos, e nada as separava.
+    Em 02 e 03/11/2026 o log só dizia "bloqueio", e eu cravei a causa sem prova.
+  */
+  it.each([
+    ['fora do Brasil: a chamada saiu direto', { 'x-amz-cf-pop': 'SFO53-P1', 'x-cache': 'Error from cloudfront' }, 'CDN do CNJ, ponto SFO53-P1'],
+    ['no Brasil: passou pela ponte', { 'x-amz-cf-pop': 'GRU1-C2', 'x-cache': 'Error from cloudfront' }, 'CDN do CNJ, ponto GRU1-C2'],
+    ['a própria ponte recusou', { server: 'nginx/1.28.0' }, 'servidor nginx/1.28.0'],
+    ['ninguém se identifica', {}, 'servidor não identificado'],
+  ])('o motivo da suspensão diz quem recusou — %s', async (_caso, cabecalhos, quem) => {
+    fetchFalso.mockResolvedValue({
+      status: 403, ok: false, headers: new Headers(cabecalhos as Record<string, string>),
+      json: async () => ({}), text: async () => '<html>403</html>',
+    });
+    const s = servico();
+    expect(s.motivoDaSuspensao).toBeNull();
+    for (let i = 0; i < 3; i++) {
+      await expect(s.lerPorProcesso(NPU)).rejects.toBeInstanceOf(DjenBloqueadoError);
+    }
+    expect(s.motivoDaSuspensao).toBe(`3 consultas seguidas voltaram com 403 sem sinal de cota (quem recusou: ${quem})`);
+  });
+
   it('200 sem cabeçalho: a chamada seguinte sai na hora (o botão não recebe "cota esgotada")', async () => {
     fetchFalso.mockResolvedValue(semCabecalho(200));
     const s = servico();
@@ -219,7 +241,7 @@ function montar(opcoes: {
    * O DIÁRIO ESTÁ RECUSANDO CONSULTAS VINDAS DESTE SERVIDOR?
    *
    * É função, e não booleano, porque na produção o estado LIGA no meio da
-   * rodada: a primeira recusa acende `bloqueadoNaOrigem` e as seguintes nem
+   * rodada: o disjuntor abre depois da terceira recusa e as seguintes nem
    * precisam sair. Testar com um booleano fixo testaria o caso fácil.
    */
   bloqueado?: () => boolean;
@@ -271,6 +293,9 @@ function montar(opcoes: {
     lerPorProcesso: opcoes.lerPorProcesso ?? jest.fn(async () => leitura({ rotulo: `NPU ${NPU}` })),
     get bloqueadoNaOrigem() {
       return opcoes.bloqueado?.() ?? false;
+    },
+    get motivoDaSuspensao() {
+      return opcoes.bloqueado?.() ? '3 consultas seguidas voltaram com 403 sem sinal de cota (quem recusou: nginx)' : null;
     },
   };
   const logSync = { registrar: jest.fn(async (..._a: unknown[]) => undefined) };
@@ -644,22 +669,14 @@ describe('o histórico pelo número, uma vez por processo', () => {
   });
 
   /*
-    A RODADA PARA QUANDO A PORTA FECHA — e não quando dá a hora (03/11/2026).
+    A RODADA PARA QUANDO A FONTE FECHA — e não quando dá a hora (03/11/2026).
 
-    Antes, o que parava a rodada era um orçamento de 150 minutos. Ele nunca
-    disparou em 45 noites (a rodada do Diário leva de 1 a 19 minutos), e
-    protegia uma janela que deixou de existir quando o Diário passou a esperar
-    a vez do DataJud em vez de começar às 05:00 no relógio.
+    O orçamento de 150 minutos nunca disparou em 45 noites, e em 10 delas a rodada
+    inteira falhou. A causa vem do serviço, que é quem sabe por que suspendeu: aqui
+    a linha de resumo só pode repetir o que ele registrou, sem inventar outra.
 
-    O que ACONTECE DE VERDADE está medido: nas noites de 02 e 03/11 as **168
-    consultas da rodada falharam**, todas com 403 de bloqueio de origem do
-    CloudFront do CNJ. Duas madrugadas inteiras batendo numa porta fechada, uma
-    chamada por vez, com pausa entre elas.
-
-    Aqui a primeira consulta falha e acende `bloqueadoNaOrigem`, como na
-    produção: a rodada para na segunda, quem ficou não ganha carimbo nenhum (o
-    histórico continua nulo e entra primeiro na noite seguinte) e a linha de
-    resumo diz O MOTIVO, não "deu a hora".
+    Quem ficou não ganha carimbo nenhum: o histórico continua nulo e entra primeiro
+    na noite seguinte.
   */
   it('a fonte fecha no meio: para na consulta seguinte, sem carimbo, e diz por quê', async () => {
     relogio('2026-09-15T08:00:00Z');
@@ -685,7 +702,7 @@ describe('o histórico pelo número, uma vez por processo', () => {
 
     const resumo = await svc.varrer();
 
-    // Saiu UMA consulta, não três: a segunda já encontrou a porta fechada.
+    // Saiu UMA consulta, não três: a segunda já encontrou o disjuntor aberto.
     expect(djen.lerPorProcesso).toHaveBeenCalledTimes(1);
     expect(prisma.processo.update).not.toHaveBeenCalled();
     /*
@@ -694,17 +711,16 @@ describe('o histórico pelo número, uma vez por processo', () => {
       linha de resumo justamente o processo que levou o 403.
     */
     expect(resumo.processosParadosPorTempo).toBe(3);
-    expect(resumo.porqueParou).toContain('bloqueio de origem');
-    expect(linha().mensagemErro).toContain('Rodada encerrada porque o CNJ está recusando');
-    // E nunca culpa o relógio por algo que é da porta do CNJ.
+    expect(resumo.porqueParou).toContain('quem recusou: nginx');
+    expect(linha().mensagemErro).toContain('Rodada encerrada porque 3 consultas seguidas voltaram com 403');
+    // E nunca culpa o relógio por algo que é da fonte.
     expect(linha().mensagemErro).not.toContain('por tempo');
   });
 
   /*
-    E A PASSADA 1 TAMBÉM PARA. Era a única sem nenhum corte, e é justamente a
-    que gastou as 168 chamadas perdidas: uma por OAB, todas recusadas. Ela é
-    também a que descobre AÇÃO NOVA, então o resumo conta os advogados que
-    ficaram de fora separado dos processos.
+    E A PASSADA 1 TAMBÉM PARA. Era a única sem nenhum corte. Ela é também a que
+    descobre AÇÃO NOVA, então o resumo conta os advogados que ficaram de fora
+    separado dos processos.
   */
   it('a fonte fechada também interrompe a busca por OAB, e o resumo conta os advogados', async () => {
     relogio('2026-09-15T08:00:00Z');
@@ -722,7 +738,7 @@ describe('o histórico pelo número, uma vez por processo', () => {
 
     expect(djen.lerPorOab).toHaveBeenCalledTimes(1);
     expect(resumo.oabsNaoConsultadas).toBe(1);
-    expect(linha().mensagemErro).toContain('1 advogado ficaram para a próxima noite');
+    expect(linha().mensagemErro).toContain('1 advogado ficou para a próxima noite');
   });
 
   it('noite normal: ninguém fica para trás e a frase não aparece', async () => {

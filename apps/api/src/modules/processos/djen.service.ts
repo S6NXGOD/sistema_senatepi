@@ -300,6 +300,29 @@ const FALHAS_DE_REDE_PARA_ABRIR = 8;
 /** Quanto tempo o serviço para de tentar depois de confirmar o bloqueio. */
 const PAUSA_APOS_BLOQUEIO_MS = 60 * 60_000;
 
+/**
+ * DE QUEM VEIO O 403 — é o que separa três causas que o log confundia.
+ *
+ * Em 02 e 03/11/2026 toda a rodada voltou "bloqueada" e nada registrava quem
+ * recusou. Um 403 sem cabeçalho de cota tem três origens, com três consertos:
+ *
+ *   CDN do CNJ, ponto fora do Brasil .. a chamada saiu direto do Railway: confira
+ *                                       `DJEN_BASE_URL`
+ *   CDN do CNJ, ponto no Brasil ....... passou pela ponte, e o CNJ recusa o IP dela
+ *   nginx, sem ponto do CDN ........... a própria ponte recusou: confira
+ *                                       `DJEN_PONTE_CHAVE`
+ *
+ * Escrevo o que o cabeçalho diz, e não a conclusão: já errei este diagnóstico
+ * duas vezes afirmando a causa sem ter a prova na mão. Ver `docs/ponte-djen.md`.
+ */
+function quemRecusou(res: { headers: { get(nome: string): string | null } }): string {
+  const ponto = res.headers.get('x-amz-cf-pop');
+  if (ponto) return `CDN do CNJ, ponto ${ponto}`;
+  if (/cloudfront/i.test(res.headers.get('x-cache') ?? '')) return 'CDN do CNJ';
+  const servidor = res.headers.get('server');
+  return servidor ? `servidor ${servidor}` : 'servidor não identificado';
+}
+
 @Injectable()
 export class DjenService {
   private readonly logger = new Logger(DjenService.name);
@@ -334,6 +357,8 @@ export class DjenService {
    */
   private bloqueiosSeguidos = 0;
   private bloqueadoAte = 0;
+  /** A causa da pausa em curso — ver `motivoDaSuspensao`. */
+  private porqueSuspendeu = 'as consultas ao Diário estão suspensas';
   /**
    * A PONTE CAIU — e o robô gastou 36 MINUTOS descobrindo isso, três noites.
    *
@@ -418,6 +443,18 @@ export class DjenService {
    */
   get bloqueadoNaOrigem(): boolean {
     return Date.now() < this.bloqueadoAte;
+  }
+
+  /**
+   * POR QUE as consultas estão suspensas, em palavras — ou `null` se não estão.
+   *
+   * O disjuntor abre por dois caminhos (403 sem sinal de cota; falhas de rede
+   * seguidas) e `bloqueadoNaOrigem` responde "sim" aos dois. Quem precisa ESCREVER
+   * a causa lê daqui, para a linha de resumo não chamar de "bloqueio do CNJ" uma
+   * noite em que a ponte estava fora do ar.
+   */
+  get motivoDaSuspensao(): string | null {
+    return this.bloqueadoNaOrigem ? this.porqueSuspendeu : null;
   }
 
   /**
@@ -635,10 +672,13 @@ export class DjenService {
         this.bloqueiosSeguidos++;
         if (this.bloqueiosSeguidos >= BLOQUEIOS_PARA_ABRIR) {
           this.bloqueadoAte = Date.now() + PAUSA_APOS_BLOQUEIO_MS;
+          this.porqueSuspendeu =
+            `${this.bloqueiosSeguidos} consultas seguidas voltaram com 403 sem sinal de cota ` +
+            `(quem recusou: ${quemRecusou(res)})`;
           this.logger.error(
             `[DJEN] Bloqueio de origem confirmado (${this.bloqueiosSeguidos}x) — ` +
               `suspendendo consultas por ${PAUSA_APOS_BLOQUEIO_MS / 60_000} min. ` +
-              'O CDN do CNJ recusa requisições vindas deste servidor.',
+              `Quem recusou: ${quemRecusou(res)}.`,
           );
         }
         throw new DjenBloqueadoError();
@@ -716,6 +756,8 @@ export class DjenService {
         this.falhasDeRedeSeguidas++;
         if (this.falhasDeRedeSeguidas >= FALHAS_DE_REDE_PARA_ABRIR) {
           this.bloqueadoAte = Date.now() + PAUSA_APOS_BLOQUEIO_MS;
+          this.porqueSuspendeu =
+            `${this.falhasDeRedeSeguidas} consultas seguidas não alcançaram o Diário (${causa})`;
           this.logger.error(
             `[DJEN] Ponte fora do ar (${this.falhasDeRedeSeguidas} falhas de rede seguidas: ${causa}) — ` +
               `suspendendo consultas por ${PAUSA_APOS_BLOQUEIO_MS / 60_000} min. ` +

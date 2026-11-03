@@ -41,6 +41,16 @@ curl -s -o /dev/null -w "%{http_code}\n" \
   "https://comunicaapi.pje.jus.br/api/v1/comunicacao?numeroOab=9226&ufOab=PI&itensPorPagina=1"
 ```
 
+**Antes de tudo, leia a linha de resumo da rodada** (desde 03/11/2026 ela diz quem
+recusou, e isso costuma encerrar o assunto sem abrir o Railway nem a VPS):
+
+| a linha diz | significa | onde mexer |
+|---|---|---|
+| `quem recusou: CDN do CNJ, ponto` fora do Brasil (`SFO`, `IAD`, `AMS`…) | a chamada saiu **direto** do Railway | `DJEN_BASE_URL` |
+| `quem recusou: CDN do CNJ, ponto` no Brasil (`GRU`, `GIG`, `FOR`…) | passou pela ponte, e o CNJ recusa o **IP dela** | a VPS |
+| `quem recusou: servidor nginx` | a **própria ponte** recusou | `DJEN_PONTE_CHAVE` |
+| `não alcançaram o Diário` | ninguém respondeu: ponte fora do ar | a VPS |
+
 **O que cada resposta quer dizer**
 
 | sintoma | causa | o que fazer |

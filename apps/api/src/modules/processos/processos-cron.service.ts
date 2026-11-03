@@ -210,11 +210,11 @@ export class ProcessosCronService {
    * horário: hoje não há nada a proteger às 05:00, e o corte só faz perder
    * leitura.
    *
-   * E ele era uma armadilha dormente. Medido na produção em 45 noites:
+   * E ele era uma armadilha dormente. Entrou em 29/10 e, medido na produção:
    *
-   *   noites em que o corte disparou ............. ZERO
+   *   noites em que o corte disparou ............. ZERO, das 5 desde então
    *   rodadas desde que ele entrou (30/10) ....... 92, 94, 95, 99 e 110 min
-   *   noites ruins de outubro .................... 197, 207 e 208 min
+   *   noites ruins de outubro, antes dele ........ 197, 207 e 208 min
    *   consulta ao CNJ em 28 e 29/10 .............. 149s e 160s de MÉDIA
    *   consulta ao CNJ em 03/11 ................... 33s
    *
@@ -246,9 +246,8 @@ export class ProcessosCronService {
    * VINTE E CINCO saiu da medição, e com folga. A maior sequência de falhas
    * seguidas em 45 noites foi **10** (10/10), depois 9 e 8 — todas em noites
    * que terminaram bem. Vinte e cinco é duas vezes e meia o pior caso real,
-   * então ruído não dispara. O que dispara é o que aconteceu com o Diário em
-   * 02 e 03/11: **168 de 168 consultas recusadas**, as duas noites inteiras
-   * gastas batendo numa porta fechada.
+   * então ruído não dispara. O que dispara é a fonte fechada, em que cada
+   * consulta ainda custaria até 45 segundos para desistir.
    */
   private readonly RECUSAS_SEGUIDAS_PARA_PARAR = Number(
     process.env.DATAJUD_RECUSAS_SEGUIDAS,

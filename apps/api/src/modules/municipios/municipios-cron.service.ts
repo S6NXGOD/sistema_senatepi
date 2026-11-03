@@ -77,8 +77,11 @@ export class MunicipiosCronService {
           não custa nada; atrasar o Diário custa prazo.
 
           Na prática, numa noite normal ele espera o DataJud (que começa às
-          02:00) e roda bem antes das 05:00, sem nunca ver a trava do Diário.
-          Nas noites ruins ele vai para o fim da fila, que é onde ele pertence.
+          02:00) e roda bem antes das 05:00, sem nunca ver a trava do Diário. Se o
+          DataJud passar das 05:00, os dois saem da espera no mesmo minuto e podem
+          rodar juntos: o Diário não perde nada, porque um fala com o CNJ e o outro
+          com o Tesouro, sem cota em comum. O que ele nunca faz é começar com o
+          Diário já em andamento.
 
           O teto largo não é orçamento: a trava bate o ponto, então ela fica
           vigente só enquanto o job da frente está VIVO.

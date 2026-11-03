@@ -382,15 +382,11 @@ export class DjenSyncService {
     /*
       A RODADA PARA QUANDO O DIÁRIO FECHA — e não quando dá a hora (03/11/2026).
 
-      Medido na produção: nas noites de **02 e 03/11 as 168 consultas da rodada
-      falharam**, todas com o mesmo motivo — o CloudFront do CNJ recusando por
-      origem da requisição (403). Duas madrugadas inteiras batendo numa porta
-      fechada, uma por uma, com pausa entre elas. Em 31/10 e 01/11 as mesmas
-      168 passaram normalmente, então não é defeito nosso: é a rota de saída.
-
-      Até aqui nada olhava isso. A passada 1 (OAB) não tinha nem orçamento, e
-      era justamente ela que gastava a noite. Agora as três passadas perguntam
-      antes de cada consulta se a fonte ainda atende.
+      Em 45 noites, **em 10 a rodada inteira falhou** (21/09, 03–06/10, 24–26/10 e
+      02–03/11), e nunca pelo relógio: foi rede, ponte ou 403. As três passadas
+      perguntam antes de cada consulta se a fonte ainda atende. Com o disjuntor
+      aberto as consultas nem saíam para a rede, mas cada uma ainda cumpria a pausa
+      entre chamadas: 168 pausas de ~3s, os 8,5 minutos daquelas noites.
 
       ZERAR NO SUCESSO é o que separa "a fonte caiu" de "tropecei": uma OAB
       inválida no meio não encerra rodada nenhuma.
@@ -399,15 +395,12 @@ export class DjenSyncService {
     /** O motivo para encerrar a rodada agora, ou `null` para continuar. */
     const fonteFechou = (): string | null => {
       /*
-        O bloqueio de origem é a única falha que o próprio serviço já reconhece
-        e lembra (`bloqueadoNaOrigem` fica ligado por alguns minutos depois do
-        403). Perguntar a ele é mais honesto que contar falhas: o 403 do
-        CloudFront não é cota nem demora, e um contador genérico levaria 25
-        consultas para descobrir o que ele sabe na primeira.
+        O DISJUNTOR ABERTO JÁ DECIDIU: o serviço só o abre depois de 3 recusas sem
+        sinal de cota ou 8 falhas de rede seguidas, e fica 60 minutos sem tentar.
+        Quem sabe a causa é ele; aqui só se repete o que ele registrou.
       */
-      if (this.djen.bloqueadoNaOrigem) {
-        return 'o CNJ está recusando as consultas vindas deste servidor (bloqueio de origem)';
-      }
+      const suspensa = this.djen.motivoDaSuspensao;
+      if (suspensa) return suspensa;
       if (recusasSeguidas >= DJEN_RECUSAS_SEGUIDAS_PARA_PARAR) {
         return `o Diário recusou ${recusasSeguidas} consultas seguidas`;
       }
@@ -479,10 +472,8 @@ export class DjenSyncService {
     let oabsNaoConsultadas = 0;
     for (const adv of advogados) {
       /*
-        PERGUNTA ANTES DE CADA CONSULTA se o Diário ainda atende. É esta linha
-        que teria poupado as 168 chamadas perdidas de 02 e 03/11: na primeira
-        recusa por origem, o serviço já sabe, e o resto da noite para aqui com
-        o motivo escrito no lugar de 168 avisos iguais.
+        PERGUNTA ANTES DE CADA CONSULTA se o Diário ainda atende. Esta passada era a
+        única sem corte nenhum: o tempo só era conferido nas passadas 2 e 3.
       */
       const fechou = fonteFechou();
       if (fechou) {
@@ -2031,17 +2022,19 @@ export class DjenSyncService {
 
       03/11/2026: VAI COM O MOTIVO. A frase dizia "parada por tempo", e desde
       hoje o tempo não é mais o que encerra rodada — a fonte ter fechado é. Ler
-      "parada por tempo" numa noite em que o CNJ recusou tudo manda a equipe
-      procurar lentidão nossa em vez da porta fechada dele.
+      "parada por tempo" numa noite em que a fonte recusou tudo manda a equipe
+      procurar lentidão onde não há.
     */
     const paradosPorTempo = resumo.processosParadosPorTempo ?? 0;
     const oabsDeFora = resumo.oabsNaoConsultadas ?? 0;
     const naoLidos = paradosPorTempo + oabsDeFora;
+    const quemFicou = [
+      paradosPorTempo > 0 ? `${paradosPorTempo} ${paradosPorTempo === 1 ? 'processo' : 'processos'}` : '',
+      oabsDeFora > 0 ? `${oabsDeFora} ${oabsDeFora === 1 ? 'advogado' : 'advogados'}` : '',
+    ].filter(Boolean).join(' e ');
     const avisoDeTempo = naoLidos > 0
       ? `Rodada encerrada porque ${resumo.porqueParou ?? 'a fonte parou de atender'}: ` +
-        `${paradosPorTempo} ${paradosPorTempo === 1 ? 'processo' : 'processos'}` +
-        `${oabsDeFora > 0 ? ` e ${oabsDeFora} ${oabsDeFora === 1 ? 'advogado' : 'advogados'}` : ''}` +
-        ' ficaram para a próxima noite. '
+        `${quemFicou} ${naoLidos === 1 ? 'ficou' : 'ficaram'} para a próxima noite. `
       : '';
     /*
       A MAIOR LEITURA ENTRA NA FRASE (15/09/2026). O número era calculado a cada

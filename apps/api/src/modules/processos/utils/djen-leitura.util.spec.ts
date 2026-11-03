@@ -173,7 +173,7 @@ describe('o que encerra a rodada do Diário', () => {
 
   /**
    * O LIMITE É TRAVA DE SEGURANÇA, NÃO ORÇAMENTO. O pior caso teórico da
-   * leitura é ~220 minutos; o real, de 1 a 19. Oito horas é quase o dobro do
+   * leitura é ~220 minutos; o real, de 7 a 42. Oito horas é quase o dobro do
    * pior teórico — se este número encostar nos 220, voltou a ser orçamento.
    */
   it('o limite absoluto é largo o bastante para nunca cortar leitura real', () => {
@@ -189,10 +189,8 @@ describe('o que encerra a rodada do Diário', () => {
   });
 
   /**
-   * O CORTE DE RECUSAS SEGUIDAS fica acima do ruído e abaixo de uma noite
-   * inteira. Em 02 e 03/11 foram **168 de 168** consultas recusadas: doze
-   * seguidas já é porta fechada, e é mais que o número de advogados
-   * consultados por noite.
+   * O CORTE DE RECUSAS SEGUIDAS fica acima de uma OAB ruim ou outra e bem abaixo
+   * de uma rodada inteira: são 168 consultas por noite.
    */
   it('o corte de recusas seguidas fica acima do ruído de uma noite ruim', () => {
     expect(DJEN_RECUSAS_SEGUIDAS_PARA_PARAR).toBe(12);
