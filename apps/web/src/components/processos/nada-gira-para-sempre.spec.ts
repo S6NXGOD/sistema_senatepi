@@ -19,10 +19,11 @@ describe('a espera tem relógio e tem fim', () => {
   it('todo caminho que sai do efeito desliga a bandeira', () => {
     const efeito = MODAL.slice(
       MODAL.indexOf('const digitos = (numeroDigitado'),
-      MODAL.indexOf('}, [numeroDigitado, open, setValue, consultaImediata]);'),
+      MODAL.indexOf('}, [numeroDigitado, open, setValue, tentativa]);'),
     );
-    // Três saídas: número incompleto, número já consultado, e o `finally`.
-    expect(efeito.match(/setConsultando\(false\)/g) ?? []).toHaveLength(3);
+    // Duas saídas: número incompleto e o `finally`. Era também a terceira, a do
+    // "número já consultado", que apagava o giro sem haver resposta na tela.
+    expect(efeito.match(/setConsultando\(false\)/g) ?? []).toHaveLength(2);
   });
 
   it('a tela conta os segundos e para de prometer 30', () => {
@@ -42,6 +43,72 @@ describe('a espera tem relógio e tem fim', () => {
   it('o cliente HTTP tem prazo, e o longo é declarado caso a caso', () => {
     expect(API).toContain('const TIMEOUT_PADRAO_MS = 30_000;');
     expect(API).toContain('export const TIMEOUT_LONGO = 180_000;');
+  });
+});
+
+/**
+ * "O SISTEMA NÃO ESTÁ MOSTRANDO O PREVIEW DOS DADOS DO DATAJUD" — 03/11/2026.
+ *
+ * A API devolvia a prévia inteira e a tela ficava sem giro, sem erro e sem
+ * prévia. O `onBlur` do número re-disparava o efeito da consulta, e re-disparar
+ * um efeito derruba o que ele tinha no ar: quem ia para o campo seguinte durante
+ * a espera (18 a 60 segundos) perdia a resposta, e a execução nova não perguntava
+ * de novo, porque o número já constava como consultado.
+ *
+ * Reproduzido no navegador antes de corrigir, com mais dois caminhos para o mesmo
+ * branco: reabrir com o mesmo número e sair rápido do campo; apagar um dígito,
+ * sair e redigitar. Os três saíram junto com o blur.
+ *
+ * ESTES TESTES LEEM O FONTE, porque o web não monta o diálogo em teste. O que eles
+ * fixam é a ESTRUTURA que torna o defeito impossível: só o número, o diálogo aberto
+ * e o botão de tentar de novo recomeçam a consulta.
+ */
+describe('sair do campo não derruba a consulta', () => {
+  const CODIGO = MODAL.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const CAMPO = CODIGO.slice(CODIGO.indexOf('name="numeroCNJ"'), CODIGO.indexOf('errors.numeroCNJ'));
+  const FAIXA = CODIGO.slice(
+    CODIGO.indexOf('{erroPrevia && !consultando && ('),
+    CODIGO.indexOf('{previa && !consultando && ('),
+  );
+
+  it('o campo do número não faz nada ao perder o foco', () => {
+    // A primeira linha prova que o recorte é mesmo o campo: sem ela, um recorte
+    // vazio passaria na negativa.
+    expect(CAMPO).toContain('mascararNPU(e.target.value)');
+    expect(CAMPO).not.toContain('onBlur');
+  });
+
+  it('a consulta só recomeça quando a pergunta muda', () => {
+    expect(CODIGO).toContain('}, [numeroDigitado, open, setValue, tentativa]);');
+  });
+
+  /**
+   * O contador nunca anda com uma consulta no ar, senão o defeito volta por aqui:
+   * a faixa de erro só existe com `consultando` desligado. E o `type="button"` não
+   * é detalhe: dentro do formulário, um botão sem ele importaria o processo.
+   */
+  it('quem pede de novo é só o botão, que não existe com consulta no ar', () => {
+    expect(CODIGO.match(/setTentativa\(/g) ?? []).toHaveLength(1);
+    expect(FAIXA).toContain('setTentativa((n) => n + 1)');
+    expect(FAIXA).toContain('Tentar de novo');
+    expect(FAIXA).toContain('type="button"');
+  });
+
+  /** Ela afirmava "a resposta está na tela" quando só o pedido tinha saído. */
+  it('a memória de "já consultei" não voltou', () => {
+    expect(CODIGO).not.toContain('ultimoConsultado');
+    expect(CODIGO).not.toContain('semEspera');
+  });
+
+  it('a prévia quebra a linha em vez de cortar a classe e a vara', () => {
+    const LINHA = CODIGO.slice(CODIGO.indexOf('function Linha('), CODIGO.indexOf('const schema = z.object'));
+    expect(LINHA).toContain('<dd className="break-words font-medium">');
+    expect(LINHA).not.toContain('truncate');
+  });
+
+  /** O vão entre o tribunal e o advogado parecia um pedaço da tela faltando. */
+  it('a altura que sobra fica depois do último bloco da coluna', () => {
+    expect(CODIGO).toContain('md:grid-rows-[auto_1fr]');
   });
 });
 

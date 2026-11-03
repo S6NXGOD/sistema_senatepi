@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import {
   X, Search, Loader2, Gavel, Landmark, Scale, Building2, Newspaper,
   CheckCircle2, AlertTriangle, ShieldAlert, Sparkles, Tag, Users,
-  ChevronRight, UserPlus, UserCheck, Star,
+  ChevronRight, UserPlus, UserCheck, Star, RefreshCw,
 } from 'lucide-react';
 import { CadastroFiliadoModal } from '@/components/filiados/cadastro-filiado-modal';
 import { usePodeCadastrarFiliado } from '@/components/filiados/permissao-cadastro';
@@ -46,7 +46,11 @@ function Linha({ rotulo, valor }: { rotulo: string; valor: string | null | undef
   return (
     <div className="min-w-0">
       <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">{rotulo}</dt>
-      <dd className="truncate font-medium" title={valor}>{valor}</dd>
+      {/* QUEBRA, NÃO CORTA. A prévia existe para a pessoa conferir se é o processo
+          certo, e "Cumprimento de Sentença contr…" não confere nada: na produção,
+          128 das 187 classes e 113 das 187 varas passam de 28 caracteres. O `title`
+          de antes não socorria no celular, onde não há ponteiro. */}
+      <dd className="break-words font-medium">{valor}</dd>
     </div>
   );
 }
@@ -213,13 +217,25 @@ export function ImportarProcessoDialog({
   const [consultando, setConsultando] = useState(false);
   const [erroPrevia, setErroPrevia] = useState<string | null>(null);
   /**
-   * Gatilho da consulta imediata (`onBlur` do NPU).
+   * NOVA TENTATIVA, só a pedido — o botão "Tentar de novo" da faixa de erro.
    *
-   * São dois: o contador re-dispara o efeito, e o ref diz que ESTA execução
-   * pula o debounce. Sem o ref, o primeiro blur deixaria todas as consultas
-   * seguintes imediatas — e voltaríamos a bater no CNJ a cada tecla.
+   * SAIR DO CAMPO NÃO CONSULTA MAIS, e era isso que sumia com a prévia.
+   *
+   * O `onBlur` do número re-disparava o efeito da consulta, e re-disparar um
+   * efeito derruba o que ele tinha no ar. Com o CNJ levando de 18 a 60 segundos,
+   * bastava ir para o campo seguinte durante a espera: a resposta chegava e era
+   * jogada fora, a execução nova não perguntava de novo (o número já constava
+   * como consultado) e a tela ficava sem giro, sem erro e sem prévia — enquanto
+   * as partes do Diário, de um efeito que não olha o blur, apareciam ao lado.
+   * O defeito é de 07/08/2026; com o CNJ a 0,9s a janela era curta demais para
+   * alguém cair nela, e ela cresceu junto com a lentidão.
+   *
+   * O atalho existia para poupar 600ms de quem cola o número, e o giro já aparece
+   * no instante em que o número fica completo: não havia mais nada a poupar. Sem
+   * ele, a vida da consulta depende só do que muda a pergunta — o número, o
+   * diálogo aberto e este contador, que só anda quando não há nada no ar.
    */
-  const [consultaImediata, setConsultaImediata] = useState(0);
+  const [tentativa, setTentativa] = useState(0);
   /**
    * "O CNJ AINDA NÃO PUBLICOU — CADASTRAR ASSIM MESMO."
    *
@@ -247,9 +263,6 @@ export function ImportarProcessoDialog({
     const t = setInterval(() => setSegundos((s) => s + 1), 1000);
     return () => clearInterval(t);
   }, [consultando]);
-  const semEspera = useRef(false);
-  /** Último NPU efetivamente consultado — evita repetir a chamada no blur. */
-  const ultimoConsultado = useRef('');
   /** Tribunal é fallback: só aparece quando alguém pede, ou quando a busca falha. */
   const [tribunalAberto, setTribunalAberto] = useState(false);
   const numeroDigitado = watch('numeroCNJ');
@@ -524,21 +537,12 @@ export function ImportarProcessoDialog({
       setConsultando(false);
       return;
     }
-    // Sair e voltar ao campo sem mudar o número não consulta de novo: o CNJ tem
-    // cota, e a resposta que está na tela é a mesma.
-    const imediata = semEspera.current;
-    semEspera.current = false;
-    // Mesmo cuidado do caminho acima: sair sem desligar a bandeira deixaria a
-    // tela girando sobre uma consulta que já terminou.
-    if (imediata && ultimoConsultado.current === digitos) { setConsultando(false); return; }
 
     let cancelado = false;
     setConsultando(true);
     setErroPrevia(null);
-    // Digitando: 600ms de espera para não bater no CNJ a cada tecla. Saindo do
-    // campo (`onBlur`), a intenção já está clara — vai na hora.
+    // 600ms de espera para não bater no CNJ a cada tecla.
     const t = setTimeout(async () => {
-      ultimoConsultado.current = digitos;
       try {
         const r = await consultarDatajud(digitos);
         if (cancelado) return;
@@ -579,16 +583,13 @@ export function ImportarProcessoDialog({
         if (!cancelado) {
           setPrevia(null);
           setErroPrevia(e?.response?.data?.message ?? 'Não foi possível consultar o DataJud agora.');
-          // Falhou: esquece o número consultado para que sair e voltar ao campo
-          // tente de novo, em vez de repetir o erro parado na tela.
-          ultimoConsultado.current = '';
         }
       } finally {
         if (!cancelado) setConsultando(false);
       }
-    }, imediata ? 0 : 600);
+    }, 600);
     return () => { cancelado = true; clearTimeout(t); };
-  }, [numeroDigitado, open, setValue, consultaImediata]);
+  }, [numeroDigitado, open, setValue, tentativa]);
 
   /*
     ============================================================================
@@ -985,7 +986,13 @@ export function ImportarProcessoDialog({
           por `md:grid-cols-2`, que já tinha o mesmo `minmax(0, 1fr)` e por isso
           nunca mostrou o defeito no desktop.
         */}
-        <div className="grid flex-1 grid-cols-1 gap-x-6 gap-y-4 overflow-y-auto p-5 md:grid-cols-2 md:items-start">
+        {/*
+          `md:grid-rows-[auto_1fr]`: A COLUNA DA DIREITA OCUPA AS DUAS LINHAS, e a
+          altura que sobra dela era repartida entre as linhas da esquerda — daí um
+          vão entre o tribunal e o advogado, que parecia um pedaço da tela
+          faltando. Agora a folga inteira fica depois do último bloco.
+        */}
+        <div className="grid flex-1 grid-cols-1 gap-x-6 gap-y-4 overflow-y-auto p-5 md:grid-cols-2 md:grid-rows-[auto_1fr] md:items-start">
           {/*
             ================= COLUNA 1A — O NÚMERO E O QUE O CNJ RESPONDEU =======
 
@@ -1016,10 +1023,6 @@ export function ImportarProcessoDialog({
                   placeholder="0000000-00.0000.0.00.0000"
                   value={field.value}
                   onChange={(e) => field.onChange(mascararNPU(e.target.value))}
-                  // Sair do campo consulta na hora, sem esperar o debounce: quem
-                  // COLA o número já terminou de digitar, e meio segundo de
-                  // espera com o cursor parado parece travamento.
-                  onBlur={() => { semEspera.current = true; setConsultaImediata((n) => n + 1); }}
                   className="font-mono tracking-tight"
                 />
               )}
@@ -1064,7 +1067,16 @@ export function ImportarProcessoDialog({
 
           {erroPrevia && !consultando && (
             <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">
-              {erroPrevia} Você ainda pode importar — a busca será refeita ao salvar.
+              <p>{erroPrevia} Você ainda pode importar — a busca será refeita ao salvar.</p>
+              {/* A saída existia e era invisível: tentar de novo exigia sair do
+                  campo e voltar, e nada na tela dizia isso. */}
+              <button
+                type="button"
+                onClick={() => setTentativa((n) => n + 1)}
+                className="mt-2 flex h-9 items-center gap-1.5 rounded-md border border-amber-400/70 bg-background px-3 font-medium text-foreground transition hover:bg-muted sm:h-8 sm:px-2.5"
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Tentar de novo
+              </button>
             </div>
           )}
 
