@@ -136,7 +136,9 @@ describe('a faixa fala de consequência e oferece saída', () => {
    */
   it('avisa o que o clique dispara e mostra que está rodando', () => {
     expect(TELA).toContain('leva cerca');
-    expect(TELA).toContain('de um minuto');
+    // O teste fixava a frase falsa: "um minuto" para uma rodada de 13 de mediana.
+    expect(TELA).toContain('plano: leva uns 15 minutos');
+    expect(TELA).not.toContain('de um minuto');
     expect(TELA).toContain("'Buscando…'");
     expect(TELA).toContain('agindo={varrer.isPending}');
   });
