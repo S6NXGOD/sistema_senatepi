@@ -1,4 +1,5 @@
 import { diaBR } from '../processos/utils/data-br.util';
+import { ehDiaDeExpediente } from './feriados';
 
 /**
  * DIAS ÚTEIS ENTRE DUAS DATAS — sábado e domingo não contam.
@@ -12,12 +13,18 @@ import { diaBR } from '../processos/utils/data-br.util';
  * silenciosa — enquanto o próprio texto do aviso dizia que "fim de semana
  * explica silêncio curto". A tela contradizia a si mesma toda semana.
  *
- * FERIADO NÃO ENTRA, de propósito. Não há calendário forense no sistema, e
- * chutar feriado nacional erraria o que importa aqui — os recessos e os
- * feriados locais que suspendem o expediente em cada tribunal. Contar só o fim
- * de semana já elimina o falso positivo semanal, que era o problema real; um
- * feriado isolado ainda pode gerar um aviso, e aí ele está apenas adiantado,
- * não errado.
+ * FERIADO NACIONAL PASSOU A ENTRAR — 03/11/2026.
+ *
+ * O comentário antigo dizia que um feriado isolado geraria "um aviso apenas
+ * adiantado, não errado". Errado ele estava: na terça de Finados o painel
+ * anunciou "não recebe as publicações do Diário desde domingo, 01/11" — um
+ * domingo, que nunca tem publicação, somado a uma segunda que foi feriado. A
+ * faixa acusava dois dias de silêncio em que não havia uma linha a receber, e
+ * quem lê isso vai procurar defeito onde não há.
+ *
+ * Entram só os NACIONAIS, que suspendem o expediente no país inteiro e dá para
+ * calcular sem chutar. Feriado estadual, municipal e o recesso continuam fora,
+ * e aí sim o aviso sai adiantado — ver `feriados.ts`.
  *
  * O DIA É O DIA DAQUI, NÃO O DO CONTÊINER.
  *
@@ -50,8 +57,7 @@ export function diasUteisEntre(de: Date, ate: Date): number {
   const fim = new Date(`${diaBR(ate)}T00:00:00Z`);
   while (cursor < fim) {
     cursor.setUTCDate(cursor.getUTCDate() + 1);
-    const dow = cursor.getUTCDay();
-    if (dow !== 0 && dow !== 6) dias++;
+    if (ehDiaDeExpediente(cursor)) dias++;
   }
   return dias;
 }

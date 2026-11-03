@@ -9,6 +9,14 @@ import { diasUteisEntre } from './dias-uteis';
  * acusava a integração de silenciosa — enquanto o próprio texto do aviso dizia
  * que "fim de semana explica silêncio curto". A tela se contradizia toda semana.
  */
+/*
+  AS DATAS DESTE ARQUIVO MUDARAM — 03/11/2026.
+
+  Os casos usavam 07/09/2026 como "uma segunda-feira comum", e 7 de setembro é
+  Independência. Quando `diasUteisEntre` aprendeu feriado nacional, três testes
+  ficaram vermelhos — e estavam certos no que queriam dizer, só tinham
+  escolhido o dia errado. Passaram para 14/09, segunda sem nada.
+*/
 describe('dias úteis entre duas datas', () => {
   const d = (iso: string) => new Date(`${iso}T12:00:00-03:00`);
 
@@ -18,7 +26,12 @@ describe('dias úteis entre duas datas', () => {
   });
 
   it('sexta para segunda dá um', () => {
-    expect(diasUteisEntre(d('2026-09-04'), d('2026-09-07'))).toBe(1);
+    expect(diasUteisEntre(d('2026-09-11'), d('2026-09-14'))).toBe(1);
+  });
+
+  /* E a mesma sexta para o 7 de setembro dá ZERO: feriado não é expediente. */
+  it('sexta para o feriado de 7 de setembro dá zero', () => {
+    expect(diasUteisEntre(d('2026-09-04'), d('2026-09-07'))).toBe(0);
   });
 
   /** Dois dias ÚTEIS sem publicação: aí sim vale estranhar. */
@@ -71,8 +84,8 @@ describe('dias úteis entre duas datas', () => {
     const domingoANoite = new Date('2026-09-06T23:30:00-03:00');
     expect(diasUteisEntre(sextaQuaseMeiaNoite, domingoANoite)).toBe(0);
 
-    const segundaANoite = new Date('2026-09-07T23:30:00-03:00');
-    expect(diasUteisEntre(sextaQuaseMeiaNoite, segundaANoite)).toBe(1);
+    const segundaANoite = new Date('2026-09-14T23:30:00-03:00');
+    expect(diasUteisEntre(new Date('2026-09-11T23:30:00-03:00'), segundaANoite)).toBe(1);
   });
 
   /**
@@ -81,8 +94,8 @@ describe('dias úteis entre duas datas', () => {
    * (a segunda), ainda que sejam só 26 horas de relógio.
    */
   it('conta o dia de expediente, não a volta do relógio', () => {
-    const sextaTarde = new Date('2026-09-04T23:00:00-03:00');
-    const segundaCedo = new Date('2026-09-07T01:00:00-03:00');
+    const sextaTarde = new Date('2026-09-11T23:00:00-03:00');
+    const segundaCedo = new Date('2026-09-14T01:00:00-03:00');
     expect(diasUteisEntre(sextaTarde, segundaCedo)).toBe(1);
   });
 });

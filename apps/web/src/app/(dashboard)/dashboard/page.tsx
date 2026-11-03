@@ -2602,9 +2602,24 @@ const O_QUE_A_FONTE_TRAZ: Record<
   string,
   { nome: string; oQue: string; incompleto: string }
 > = {
+  /*
+    O SUJEITO DO DJEN É A BUSCA, NÃO AS PUBLICAÇÕES — 03/11/2026.
+
+    A faixa dizia "O sistema não recebe AS PUBLICAÇÕES DO DIÁRIO desde domingo,
+    01/11", e o dono perguntou a coisa certa: *"mas o Diário recebe atualizações
+    no sábado e no domingo?"*. Não recebe — zero das 2.537 publicações do acervo
+    caiu num fim de semana. A frase prometia publicações num dia que nunca as
+    tem, e isso basta para a pessoa desconfiar do aviso inteiro.
+
+    A data que a faixa conhece é a da última VARREDURA que terminou bem, e
+    varredura roda todo dia, inclusive sábado e domingo (e não acha nada, que é
+    o esperado). Então é dela que a frase passa a falar. O que se perdeu, se é
+    que se perdeu, vai na linha seguinte — em EDIÇÕES, não em dias de
+    calendário.
+  */
   DJEN: {
     nome: 'Diário de Justiça',
-    oQue: 'as publicações do Diário',
+    oQue: 'a busca automática no Diário',
     incompleto: 'Algumas publicações podem não ter chegado.',
   },
   DATAJUD: {
@@ -2769,12 +2784,30 @@ function SaudeDasIntegracoes({
             ) : (
               <>
                 O sistema{' '}
-                {quando ? 'não recebe' : 'ainda não recebeu'}{' '}
+                {quando ? 'não conclui' : 'ainda não concluiu'}{' '}
                 <strong className="font-semibold">{fonte.oQue}</strong>
                 {quando ? ` desde ${quando}` : ''}.{' '}
                 {naoRodou
                   ? 'A busca automática, que roda toda madrugada, não executou.'
                   : `O ${fonte.nome} não respondeu às últimas tentativas.`}
+                {/*
+                  E O QUE SE PERDEU DISSO — a pergunta que a faixa não respondia.
+
+                  Dias de calendário sem busca não são edições perdidas: o Diário
+                  não circula em fim de semana nem em feriado nacional. Traduzir
+                  o atraso para EDIÇÕES é o que diz o tamanho do estrago, e é o
+                  que o número de dias nunca disse.
+
+                  Sem ramo para zero, de propósito: a faixa só aparece a partir
+                  de dois dias de expediente, então "nenhuma edição" aqui seria
+                  um galho que nunca cresce.
+                */}
+                {i.fonte === 'DJEN' && (i.diasUteisSemSucesso ?? 0) > 0 && (
+                  <span className="mt-0.5 block">
+                    Podem faltar {i.diasUteisSemSucesso}{' '}
+                    {i.diasUteisSemSucesso === 1 ? 'edição' : 'edições'} do Diário.
+                  </span>
+                )}
               </>
             )}
             {/*

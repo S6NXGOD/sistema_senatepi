@@ -71,8 +71,28 @@ describe('o silêncio de publicações', () => {
 describe('a faixa fala de consequência e oferece saída', () => {
   it('lidera pela consequência, não pelo diagnóstico', () => {
     expect(TELA).toContain('const O_QUE_A_FONTE_TRAZ');
-    expect(TELA).toContain("oQue: 'as publicações do Diário'");
-    expect(TELA).toContain("{quando ? 'não recebe' : 'ainda não recebeu'}");
+    expect(TELA).toContain("{quando ? 'não conclui' : 'ainda não concluiu'}");
+  });
+
+  /*
+    E O SUJEITO É A BUSCA, NÃO AS PUBLICAÇÕES — 03/11/2026.
+
+    A frase era "não recebe AS PUBLICAÇÕES DO DIÁRIO desde domingo, 01/11", e
+    o dono perguntou a coisa certa: o Diário publica no fim de semana? Não —
+    zero das 2.537 publicações do acervo caiu num sábado ou domingo. A data que
+    a faixa conhece é a da última VARREDURA, e varredura roda todo dia; a
+    publicação, não. Prometer publicação num domingo derruba a confiança no
+    aviso inteiro.
+  */
+  it('fala da busca, que roda todo dia — e não da publicação, que não', () => {
+    expect(TELA).toContain("oQue: 'a busca automática no Diário'");
+    expect(TELA).not.toContain("oQue: 'as publicações do Diário'");
+  });
+
+  /** O atraso vira EDIÇÕES: é isso que diz o tamanho do estrago. */
+  it('traduz os dias de expediente em edições que podem faltar', () => {
+    expect(TELA).toContain('Podem faltar {i.diasUteisSemSucesso}');
+    expect(TELA).toContain("'edição' : 'edições'");
   });
 
   /**
