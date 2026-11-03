@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ConflictException, Logger } from '@nestjs/common';
@@ -373,28 +374,68 @@ describe('a fila dos crons noturnos', () => {
   const DATAJUD = readFileSync(join(__dirname, 'processos-cron.service.ts'), 'utf8');
 
   it('a trava sabe ESPERAR, e não só ceder a vez', () => {
-    expect(TRAVA).toContain('esperaPor?: string;');
+    expect(TRAVA).toContain('esperaPor?: string | string[];');
     expect(TRAVA).toContain('esperaMaxMinutos?: number;');
     expect(TRAVA).toContain('await dormir(INTERVALO_DA_ESPERA_MS)');
   });
 
   /*
-    ESPERA SEM TETO É JOB QUE SOME. Estourado o teto ele roda assim mesmo: a
-    cota do CNJ é serial, então sobreposição atrasa e não estoura — e ficar
-    sem leitura do Diário é o único desfecho que custa prazo.
+    A TRAVA BATE O PONTO — e é isto que torna a espera segura.
+
+    Sem a renovacao, `expira_em >= now()` significa "dentro do prazo que
+    chutei": uma rodada mais longa que o TTL solta a trava sozinha e quem
+    espera entende "o da frente terminou" com ele ainda consultando o CNJ. Foi
+    o que aconteceu em três noites de outubro (207, 197 e 208 minutos contra
+    180 de prazo). Com a batida, trava vigente quer dizer JOB VIVO.
+
+    Este teste é o que impede alguém de tirar a batida e voltar a apostar na
+    duração, que não é nossa: ela depende da velocidade do CNJ naquela noite.
   */
-  it('estourado o teto, roda assim mesmo — e avisa', () => {
-    expect(TRAVA).toContain('começando assim mesmo, para não perder a rodada');
+  it('a trava se renova enquanto o job vive', () => {
+    expect(TRAVA).toContain('const BATIDA_DA_TRAVA_MS');
+    expect(TRAVA).toContain('setInterval(');
+    expect(TRAVA).toContain('UPDATE travas_job');
+    // Renova só a NOSSA trava, nunca a de outra execução.
+    expect(TRAVA).toContain('WHERE "nome" = ${nome} AND "dono_id" = ${INSTANCIA_ID}');
+    // E o timer nunca pode ser motivo de o processo não terminar.
+    expect(TRAVA).toContain('batida.unref?.();');
+    expect(TRAVA).toContain('clearInterval(batida);');
   });
 
-  it('o Diário espera o DataJud, com teto de 90 minutos', () => {
+  /*
+    ESTOURAR O PRAZO DA ESPERA NÃO É MOTIVO PARA COMEÇAR JUNTO.
+
+    O teto era de 90 minutos e, estourado, o Diário começava em cima do
+    DataJud — exatamente a sobreposição que a fila existe para impedir. O dono
+    corrigiu o desenho: *"nem que estoure o horário, mas continue para que
+    nenhum processo e atualização fique de fora"*.
+
+    Com a batida de um minuto, trava vigente é job vivo, e esperar enquanto o
+    da frente vive não arrisca espera infinita: morto o vizinho, a linha expira
+    em `ttlMinutos` e a vez sai sozinha. O teto virou desconfiança de trava que
+    se renova sem o job andar — e por isso o log dele é de ERRO, não de aviso.
+  */
+  it('o teto da espera é largo e, estourado, o log diz que aquilo é anormal', () => {
+    expect(TRAVA).toContain('significa job preso, não job demorado');
+    expect(TRAVA).toContain('logger.error(');
+    // E não volta a tratar sobreposição como desfecho normal.
+    expect(TRAVA).not.toContain('começando assim mesmo, para não perder a rodada');
+  });
+
+  it('o Diário espera o DataJud o quanto for preciso', () => {
     expect(DJEN).toContain('esperaPor: JOB_DATAJUD_SYNC');
-    expect(DJEN).toContain('esperaMaxMinutos: 90');
+    expect(DJEN).toContain('esperaMaxMinutos: 600');
   });
 
-  it('o SICONFI também espera — ele começa às 03:00, no meio do DataJud', () => {
-    expect(SICONFI).toContain('esperaPor: JOB_DATAJUD_SYNC');
-    expect(SICONFI).toContain('esperaMaxMinutos: 60');
+  /*
+    A ORDEM DE PRIORIDADE É DO DONO: *"a prioridade é CNJ e Datajud e depois os
+    outros"*. As duas fontes do CNJ trazem PRAZO; as contas públicas são número
+    de referência que muda uma vez por bimestre. Antes o SICONFI só esperava o
+    DataJud, e podia começar em cima do Diário.
+  */
+  it('o SICONFI espera as DUAS fontes do CNJ, porque é o último da fila', () => {
+    expect(SICONFI).toContain('esperaPor: [JOB_DATAJUD_SYNC, JOB_DJEN_SYNC]');
+    expect(SICONFI).toContain('esperaMaxMinutos: 600');
   });
 
   /*
@@ -406,13 +447,72 @@ describe('a fila dos crons noturnos', () => {
   });
 
   /**
-   * O TTL EXPIRAVA NO MEIO DA PRÓPRIA RODADA.
+   * O TTL DEIXOU DE MEDIR A DURAÇÃO DA RODADA.
    *
-   * Eram 180 minutos para uma varredura que chegou a 208. Passado o prazo, a
-   * linha ficava livre e outra réplica podia entrar — o dobro de chamadas ao
-   * CNJ, que é exatamente o que a trava existe para impedir.
+   * Eram 180 minutos para uma varredura que chegou a 208; subiu para 240, e
+   * continuava sendo aposta — a 160s por consulta (medido em 29/10), 160
+   * processos passam de SEIS HORAS. Com a trava batendo o ponto, o prazo mede
+   * só quanto silêncio basta para dar o job por morto, e aí ele pode (e deve)
+   * ser curto: quanto menor, mais rápido a vez sai para quem espera quando o
+   * contêiner cai no meio da madrugada.
+   *
+   * Os três iguais de propósito: a regra é a mesma para todos.
    */
-  it('o TTL do DataJud cobre a pior rodada observada', () => {
-    expect(DATAJUD).toContain('private readonly TRAVA_TTL_MIN = 240;');
+  it('o TTL é um detector de morte curto, igual nos três crons', () => {
+    expect(DATAJUD).toContain('private readonly TRAVA_TTL_MIN = 45;');
+    expect(DJEN).toContain('private readonly TRAVA_TTL_MIN = 45;');
+    expect(SICONFI).toContain('private readonly TRAVA_TTL_MIN = 45;');
+  });
+
+  /*
+    TODO CRON TEM DE TER LUGAR NA FILA — ou estar aqui, dito por escrito.
+
+    Este teste existe para o cron que ainda não nasceu. A fila foi montada
+    depois de os dois robôs do CNJ se atropelarem por semanas, e o jeito de
+    isso voltar a acontecer é alguém somar um `@Cron` que consulta o CNJ sem
+    perguntar quem já está rodando. Aqui ele reprova na hora.
+
+    A ÚNICA DISPENSA é a de cobranças (00:00): `marcarParcelasVencidas` é um
+    `updateMany` com `status: PENDENTE` no WHERE — duas réplicas rodando juntas
+    dão o mesmo resultado, ele não fala com nenhuma API externa e termina em
+    milissegundos, duas horas antes de a fila começar.
+  */
+  it('todo cron agendado está na fila, ou é dispensa escrita', () => {
+    const RAIZ = join(__dirname, '../..');
+    const comCron = execSync('git ls-files "*-cron.service.ts"', { cwd: join(RAIZ, '../../..') })
+      .toString()
+      .split('\n')
+      // `trim` por LINHA, e nao um regex de fim de linha: no Windows o `git`
+      // devolve CRLF, e um CR grudado no nome do arquivo quebra o `join`.
+      .map((l) => l.trim())
+      .filter(Boolean);
+    // Quatro hoje: cobranças, municípios (SICONFI), DJEN e DataJud.
+    expect(comCron.length).toBeGreaterThanOrEqual(4);
+
+    const DISPENSADOS = ['cobrancas-cron.service.ts'];
+    const semFila: string[] = [];
+    for (const arquivo of comCron) {
+      const nome = arquivo.split('/').pop()!;
+      if (DISPENSADOS.includes(nome)) continue;
+      const fonte = readFileSync(join(RAIZ, '../../..', arquivo), 'utf8');
+      const temTrava = fonte.includes('comTravaDeJob');
+      const temLugar = fonte.includes('esperaPor') || fonte.includes('JOB_DATAJUD_SYNC');
+      if (!temTrava || !temLugar) semFila.push(nome);
+    }
+    expect(semFila).toEqual([]);
+  });
+
+  /*
+    E O TTL TEM DE SER MUITO MAIOR QUE O INTERVALO DA BATIDA. Com 45 minutos de
+    prazo e uma batida por minuto, seriam precisas 44 batidas perdidas seguidas
+    para a trava cair com o job vivo — ou seja, o banco fora do ar, e aí o job
+    já está falhando por outro motivo.
+  */
+  it('a batida cabe no TTL com folga de dezenas de tentativas', () => {
+    const m = /const BATIDA_DA_TRAVA_MS = (\d+)_?(\d*);/.exec(TRAVA);
+    expect(m).toBeTruthy();
+    const batidaMin = Number(`${m![1]}${m![2]}`) / 60_000;
+    expect(batidaMin).toBeLessThanOrEqual(5);
+    expect(45 / batidaMin).toBeGreaterThanOrEqual(9);
   });
 });

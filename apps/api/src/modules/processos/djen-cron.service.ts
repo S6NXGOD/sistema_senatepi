@@ -50,14 +50,18 @@ export class DjenCronService {
    * normal, em ~170–185 chamadas, uns 12 a 14 minutos a 14 por minuto.
    *
    * O PIOR CASO TEÓRICO NÃO CABE: com tudo no teto são ~3.060 requisições, uns
-   * 220 minutos. O que importa é que a trava JAMAIS expire com a rodada
-   * correndo, porque aí duas passariam a disputar a mesma cota. Quem garante
-   * isso desde 15/09/2026 é o orçamento de tempo da própria rodada
-   * (`DJEN_ORCAMENTO_DA_RODADA_MIN`, 150 minutos): as consultas por número param
-   * ali, e o resto fica para a noite seguinte. Quem mexer no TTL mexe no
-   * orçamento junto.
+   * 220 minutos. O que importava era a trava JAMAIS expirar com a rodada
+   * correndo, porque aí duas passariam a disputar a mesma cota — e quem
+   * garantia isso era o orçamento de tempo da rodada, que resolvia o problema
+   * da trava CORTANDO A LEITURA no meio.
+   *
+   * 03/11/2026: NÃO É MAIS O TTL QUE PRECISA COBRIR A DURAÇÃO. A trava se
+   * renova a cada minuto enquanto o job vive, então ela só expira quando o job
+   * morre de verdade. Quarenta e cinco minutos é o silêncio que basta para dar
+   * a rodada por morta — curto o suficiente para o DataJud da noite seguinte
+   * não encontrar trava velha, e 45 vezes a folga da batida de um minuto.
    */
-  private readonly TRAVA_TTL_MIN = 180;
+  private readonly TRAVA_TTL_MIN = 45;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -90,13 +94,27 @@ export class DjenCronService {
           perder a noite, e o Diário publica em D+0 — é o dado que vira prazo.
           Começar 40 minutos mais tarde não custa nada; não começar, custa.
 
-          O teto de 90 minutos é a garantia de que o Diário nunca fica refém:
-          estourado, ele roda assim mesmo. A cota serial faz a sobreposição
-          atrasar, não estourar — e ficar sem leitura é o único desfecho que
-          custa prazo.
+          O TETO ERA DE 90 MINUTOS E ESTAVA ERRADO. Estourado, o Diário
+          começava JUNTO com o DataJud — exatamente a sobreposição que este
+          bloco existe para impedir. O dono apontou o desenho certo no mesmo
+          dia: *"a prioridade é CNJ e DataJud e depois os outros. Mesmo que
+          estoure o teto, nem que estoure o horário, mas continue para que
+          nenhum processo e atualização fique de fora"*.
+
+          Então ele ESPERA o quanto for preciso. Nas noites ruins de outubro a
+          consulta ao CNJ levou 149 e 160 segundos em média (contra 33 em
+          03/11): 160 processos a esse ritmo são mais de seis horas, e um teto
+          de 90 minutos jogaria o Diário de volta para cima do DataJud na
+          única noite em que isso dói. Começar às 09:00 lendo tudo é melhor que
+          começar às 06:30 e brigar por cota.
+
+          As dez horas abaixo não são orçamento: a trava bate o ponto a cada
+          minuto, então ela só fica vigente enquanto o DataJud está VIVO. Se o
+          DataJud cair, a linha expira em 45 minutos e a vez sai sozinha. Dez
+          horas é a desconfiança de uma trava que se renova sem o job andar.
         */
         esperaPor: JOB_DATAJUD_SYNC,
-        esperaMaxMinutos: 90,
+        esperaMaxMinutos: 600,
       },
       async () => {
         const inicio = Date.now();

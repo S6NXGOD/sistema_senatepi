@@ -6,13 +6,14 @@ import {
   diasEntre,
   DJEN_HISTORICO_MAX_PAGINAS_PADRAO,
   DJEN_HISTORICO_POR_RODADA_PADRAO,
-  DJEN_ORCAMENTO_DA_RODADA_MIN,
+  DJEN_LIMITE_ABSOLUTO_MIN,
+  DJEN_RECUSAS_SEGUIDAS_PARA_PARAR,
   faltaNaOab,
   inteiroDoAmbiente,
   janelaDaOab,
   janelaDoNumero,
   oabConsultavel,
-  passouDoOrcamento,
+  passouDoLimite,
   podeCarimbar,
   somarDiasAoDia,
   type MembroDaEquipe,
@@ -158,16 +159,45 @@ describe('faltaNaOab — o que falta, em vez de "sem OAB" para tudo', () => {
 });
 
 /**
- * O ORÇAMENTO DE TEMPO DA RODADA (15/09/2026). A trava vale 180 minutos e o pior
- * caso teórico passa de 220; as consultas por número param aos 150.
+ * O QUE ENCERRA A RODADA DO DIÁRIO — 03/11/2026.
+ *
+ * Era um orçamento de 150 minutos, pensado para a trava não expirar no meio da
+ * rodada. Hoje a trava se renova enquanto o job vive, e o relógio não decide
+ * mais nada: a rodada segue enquanto a fonte atender.
+ *
+ * Ordem do dono: *"nem que estoure o horário, mas continue para que nenhum
+ * processo e atualização fique de fora"*.
  */
-describe('passouDoOrcamento', () => {
+describe('o que encerra a rodada do Diário', () => {
   const cinco = Date.parse('2026-09-15T08:00:00Z');
-  it('150 minutos, contados do início da rodada', () => {
-    expect(DJEN_ORCAMENTO_DA_RODADA_MIN).toBe(150);
-    expect(passouDoOrcamento(cinco, cinco + 149 * 60_000 + 59_999)).toBe(false);
-    expect(passouDoOrcamento(cinco, cinco + 150 * 60_000)).toBe(true);
-    expect(passouDoOrcamento(cinco, cinco + 13 * 60_000)).toBe(false);
+
+  /**
+   * O LIMITE É TRAVA DE SEGURANÇA, NÃO ORÇAMENTO. O pior caso teórico da
+   * leitura é ~220 minutos; o real, de 1 a 19. Oito horas é quase o dobro do
+   * pior teórico — se este número encostar nos 220, voltou a ser orçamento.
+   */
+  it('o limite absoluto é largo o bastante para nunca cortar leitura real', () => {
+    expect(DJEN_LIMITE_ABSOLUTO_MIN).toBe(8 * 60);
+    expect(DJEN_LIMITE_ABSOLUTO_MIN).toBeGreaterThan(220 * 1.5);
+  });
+
+  it('passouDoLimite conta do início da rodada e exige o limite explícito', () => {
+    expect(passouDoLimite(cinco, cinco + 479 * 60_000, DJEN_LIMITE_ABSOLUTO_MIN)).toBe(false);
+    expect(passouDoLimite(cinco, cinco + 480 * 60_000, DJEN_LIMITE_ABSOLUTO_MIN)).toBe(true);
+    // Uma noite normal (13 minutos) não chega nem perto.
+    expect(passouDoLimite(cinco, cinco + 13 * 60_000, DJEN_LIMITE_ABSOLUTO_MIN)).toBe(false);
+  });
+
+  /**
+   * O CORTE DE RECUSAS SEGUIDAS fica acima do ruído e abaixo de uma noite
+   * inteira. Em 02 e 03/11 foram **168 de 168** consultas recusadas: doze
+   * seguidas já é porta fechada, e é mais que o número de advogados
+   * consultados por noite.
+   */
+  it('o corte de recusas seguidas fica acima do ruído de uma noite ruim', () => {
+    expect(DJEN_RECUSAS_SEGUIDAS_PARA_PARAR).toBe(12);
+    expect(DJEN_RECUSAS_SEGUIDAS_PARA_PARAR).toBeGreaterThan(10);
+    expect(DJEN_RECUSAS_SEGUIDAS_PARA_PARAR).toBeLessThan(168);
   });
 });
 

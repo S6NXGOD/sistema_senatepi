@@ -27,10 +27,19 @@ export type RodadaDatajud =
       novas: number;
       falhas: number;
       /**
-       * Processos que ficaram sem consulta porque a rodada passou do
-       * orçamento de tempo. Entram primeiro na noite seguinte.
+       * Processos que ficaram sem consulta. Entram primeiro na noite seguinte,
+       * porque a fila ordena pela leitura mais antiga.
        */
-      paradosPorTempo?: number;
+      naoConsultados?: number;
+      /**
+       * POR QUE a rodada parou antes de varrer tudo — e nunca "deu a hora".
+       *
+       * Até 03/11/2026 a única resposta possível era o relógio, e a frase dizia
+       * isso. Hoje a rodada só para quando a fonte parou de atender: a mensagem
+       * precisa carregar o motivo, porque "ficaram 60 para amanhã" sem motivo
+       * manda a equipe procurar defeito onde não há.
+       */
+      porqueParou?: string | null;
       /** Mensagem do erro que interrompeu a rodada, ou null. */
       quebrou: string | null;
     };
@@ -96,8 +105,8 @@ export function linhaDeResumoDatajud(r: RodadaDatajud): {
     tempo seria indistinguível de uma rodada curta, e o número que explica a
     fila atrasada viveria só no log do contêiner.
   */
-  const ficaram = r.paradosPorTempo
-    ? `, ${r.paradosPorTempo} ficaram para a próxima noite (a rodada passou do tempo)`
+  const ficaram = r.naoConsultados
+    ? `, ${r.naoConsultados} ficaram para a próxima noite (${r.porqueParou ?? 'a rodada parou antes'})`
     : '';
   return {
     sucesso: true,
@@ -140,19 +149,31 @@ export class ProcessosCronService {
    * oito dias, se ele estiver na faixa lenta.
    */
   private readonly PAUSA_APOS_COTA = 60_000;
-  /**
-   * QUANTOS PROCESSOS A REPESCAGEM ACEITA, e por que existe um teto.
+  /*
+   * O TETO DA REPESCAGEM SAIU — 03/11/2026.
    *
-   * Enquanto só o 429 entrava, a fila era de ~10 por noite e um teto
-   * seria enfeite. Com o timeout dentro dela, uma noite ruim do CNJ pode
-   * mandar 50 ou 100 — e a rodada, que já leva 2h com o CNJ a 31s por
-   * consulta, encostaria no cron do DJEN das 05h.
+   * Eram 40 processos, e a justificativa escrita aqui era: "a rodada, que já
+   * leva 2h, encostaria no cron do DJEN das 05h". Essa razão morreu no dia em
+   * que o Diário passou a ESPERAR a vez em vez de começar no horário.
    *
-   * 40 cobre com folga a pior noite medida (34 falhas em 04/10) e põe um
-   * fim conhecido no pior caso. O que não couber volta na noite seguinte,
-   * e o painel continua dizendo quem ficou para trás.
+   * E o teto custava leitura de verdade. Medido na produção, 45 noites:
+   *
+   *   noites em que ele mordeu .................... 4
+   *   processos sem segunda chance por causa dele . 100
+   *   as noites .................................... 29/10 (41), 23/10 (35),
+   *                                                  28/10 (23), 17/10 (1)
+   *
+   * São as MESMAS noites lentas em que o orçamento de tempo cortaria a
+   * varredura: o teto, como ele, só agia quando mais doía. E esses 100 não
+   * falharam por defeito deles — levaram 429 ou timeout, que quer dizer
+   * "tente daqui a pouco", e nunca tiveram o daqui a pouco.
+   *
+   * Hoje quem põe fim no pior caso é a saúde da fonte
+   * (`RECUSAS_SEGUIDAS_PARA_PARAR`), e ela é melhor em dois sentidos: a fila
+   * nunca passa do que o laço principal aceitou enfileirar antes de desistir,
+   * e a repescagem consulta a mesma régua antes de cada tentativa. Teto por
+   * contagem jogava processo fora com o CNJ respondendo bem.
    */
-  private readonly TETO_DA_REPESCAGEM = 40;
   /**
    * O ORÇAMENTO DE TEMPO DA RODADA, em minutos (29/10/2026).
    *
@@ -173,39 +194,103 @@ export class ProcessosCronService {
    * correm juntos, disputam entre si o que já é escasso — e o 429 de um é
    * pago pelo outro.
    *
-   * 150 minutos é a mesma régua do DJEN, e termina 04h30, com meia hora de
-   * folga antes dele. O que não couber NÃO SE PERDE: `idsParaSincronizar`
-   * ordena pela leitura mais antiga, então quem ficou de fora entra primeiro
-   * na noite seguinte — exatamente como a passada 3 do DJEN já faz.
+   * 150 minutos era a mesma régua do DJEN, e terminava 04h30, com meia hora de
+   * folga antes dele.
+   *
+   * ──────────────────────────────────────────────────────────────────────────
+   * 03/11/2026 — O RELÓGIO DEIXOU DE MANDAR NA RODADA.
+   *
+   * Decisão do dono, e ela corrige um erro meu: *"mesmo que estoure o teto,
+   * com tanto que não esteja dando problema mesmo na API, nem que estoure o
+   * horário, mas continue para que nenhum processo e atualização fique de
+   * fora"*.
+   *
+   * O orçamento existia para o DataJud não invadir as 05:00 do Diário. Essa
+   * razão morreu quando o Diário passou a ESPERAR a vez em vez de começar no
+   * horário: hoje não há nada a proteger às 05:00, e o corte só faz perder
+   * leitura.
+   *
+   * E ele era uma armadilha dormente. Medido na produção em 45 noites:
+   *
+   *   noites em que o corte disparou ............. ZERO
+   *   rodadas desde que ele entrou (30/10) ....... 92, 94, 95, 99 e 110 min
+   *   noites ruins de outubro .................... 197, 207 e 208 min
+   *   consulta ao CNJ em 28 e 29/10 .............. 149s e 160s de MÉDIA
+   *   consulta ao CNJ em 03/11 ................... 33s
+   *
+   * Ou seja: nas noites normais ele nunca age, e nas noites em que o CNJ fica
+   * lento — as únicas em que agiria — ele cortaria a varredura em ~60 dos 160
+   * processos. O corte só aparece quando mais dói, e abandona 100 processos
+   * para proteger uma janela que não existe mais.
+   *
+   * NO LUGAR DELE, DUAS PERGUNTAS DE SAÚDE (ver `RECUSAS_SEGUIDAS_PARA_PARAR`
+   * e `LIMITE_ABSOLUTO_MIN`): a rodada segue enquanto o CNJ estiver
+   * atendendo, por mais que demore, e só desiste quando ele para de atender.
    *
    * ISTO NÃO CONSERTA A LENTIDÃO, e é importante dizer: a consulta leva ~58s
    * pelo Railway contra 9–20s medidos do Brasil, com a MESMA chave e o MESMO
    * processo. A causa é a rota, e o conserto dela é `DATAJUD_BASE_URL`
-   * apontando para a ponte brasileira que o DJEN já usa. O orçamento impede
-   * que a lentidão de um robô vire falha no outro.
+   * apontando para a ponte brasileira que o DJEN já usa.
    */
-  private readonly ORCAMENTO_DA_RODADA_MIN = Number(
-    process.env.DATAJUD_ORCAMENTO_DA_RODADA_MIN,
-  ) || 150;
+  /**
+   * QUANTAS RECUSAS SEGUIDAS DO CNJ ENCERRAM A RODADA.
+   *
+   * "Recusa" aqui é `valeTentarDeNovo` — cota estourada ou demora além do
+   * teto. É a família de falha que fala da FONTE; "tribunal desconhecido" ou
+   * "número inválido" falam do processo e não contam, porque nesses casos o
+   * CNJ respondeu.
+   *
+   * Qualquer sucesso zera a conta: o que encerra a rodada é a fonte ter
+   * parado, não ter tropeçado.
+   *
+   * VINTE E CINCO saiu da medição, e com folga. A maior sequência de falhas
+   * seguidas em 45 noites foi **10** (10/10), depois 9 e 8 — todas em noites
+   * que terminaram bem. Vinte e cinco é duas vezes e meia o pior caso real,
+   * então ruído não dispara. O que dispara é o que aconteceu com o Diário em
+   * 02 e 03/11: **168 de 168 consultas recusadas**, as duas noites inteiras
+   * gastas batendo numa porta fechada.
+   */
+  private readonly RECUSAS_SEGUIDAS_PARA_PARAR = Number(
+    process.env.DATAJUD_RECUSAS_SEGUIDAS,
+  ) || 25;
+  /**
+   * Trava de segurança, não orçamento: nenhuma rodada pode encostar na do dia
+   * seguinte.
+   *
+   * O pior caso plausível é o acervo inteiro na velocidade mais lenta já
+   * medida — 160 processos a 160s dão ~7 horas. Vinte horas é quase o triplo
+   * disso e ainda deixa 4 horas antes das 02:00 seguintes. Se este número for
+   * alcançado, não é lentidão: é laço preso, e aí parar é o certo.
+   */
+  private readonly LIMITE_ABSOLUTO_MIN = Number(
+    process.env.DATAJUD_LIMITE_ABSOLUTO_MIN,
+  ) || 20 * 60;
   /**
    * Validade da trava. A varredura leva ~5s por processo (2–3s de espera + a
    * consulta, que o CNJ responde em 10–25s nos casos ruins); 3h dão folga larga
    * sobre o acervo atual sem chegar perto do intervalo de 24h entre execuções.
    */
   /**
-   * O TTL EXPIRAVA NO MEIO DA PRÓPRIA RODADA — 03/11/2026.
+   * O TTL NÃO MEDE MAIS A DURAÇÃO DA RODADA — 03/11/2026.
    *
-   * Eram 180 minutos. Medido em 30 noites: mediana 101min, p90 197min e
-   * **máximo 208min**. Em três noites (23, 28 e 29/10) a varredura passou do
-   * prazo da própria trava, e a partir dali a linha estava livre: outra
-   * réplica podia entrar e varrer o acervo em paralelo — o dobro de chamadas
-   * ao CNJ, que é exatamente o que esta trava existe para impedir.
+   * Eram 180 minutos, e expiravam no meio da própria varredura: medido em 30
+   * noites, mediana 101min, p90 197min, **máximo 208min**. Em três noites (23,
+   * 28 e 29/10) a rodada passou do prazo da trava e a linha ficou livre para
+   * outra réplica varrer o acervo em paralelo — o dobro de chamadas ao CNJ.
    *
-   * Duzentos e quarenta é o máximo observado mais 32 minutos de folga, e
-   * continua curto em relação às 24h entre execuções: uma rodada perdida
-   * nunca bloqueia a próxima.
+   * A primeira correção foi subir para 240. Era aposta: a duração não é nossa,
+   * é a velocidade do CNJ naquela noite — 149 e 160 segundos por consulta em
+   * 28 e 29/10, contra 33 em 03/11. A 150 segundos, 160 processos passam de
+   * SEIS HORAS, e nenhum número fixo cobre isso sem ficar absurdo.
+   *
+   * Agora a trava **bate o ponto** a cada minuto enquanto o job vive, então
+   * `expira_em` significa "este job está vivo", não "chutei que dura tanto".
+   * O prazo passou a medir só uma coisa: **quanto silêncio basta para dar a
+   * rodada por morta**. Quarenta e cinco minutos é curto o bastante para a vez
+   * sair rápido quando o contêiner cai no meio da madrugada, e 45 batidas de
+   * folga sobre o intervalo de renovação.
    */
-  private readonly TRAVA_TTL_MIN = 240;
+  private readonly TRAVA_TTL_MIN = 45;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -279,16 +364,39 @@ export class ProcessosCronService {
     // Fora do `try`: a linha de resumo do `finally` precisa do que já foi
     // contado mesmo quando a rodada quebra no meio.
     const rodada = {
-      elegiveis: 0, ok: 0, comNovas: 0, novas: 0, falhas: 0, paradosPorTempo: 0,
+      elegiveis: 0, ok: 0, comNovas: 0, novas: 0, falhas: 0, naoConsultados: 0,
+      porqueParou: null as string | null,
       /** Quantos voltaram na segunda tentativa depois de um 429. */
       recuperados: 0,
       quebrou: null as string | null,
     };
     /** Os que levaram 429: a cota era de outro, e eles merecem uma segunda vez. */
     const paraTentarDeNovo: string[] = [];
-    /** Quantos ficaram sem consulta porque a rodada passou do orçamento. */
-    const estourouOTempo = () =>
-      Date.now() - inicio > this.ORCAMENTO_DA_RODADA_MIN * 60_000;
+
+    /*
+      A RODADA PARA PELA SAÚDE DA FONTE, NUNCA PELO RELÓGIO — 03/11/2026.
+
+      Enquanto o CNJ responde, ela segue, por mais que a noite ande. O que a
+      encerra é ele ter parado de atender: aí cada chamada seguinte é certeza
+      de falha, e insistir 100 vezes só enche o log de ruído e atrasa a
+      próxima tentativa, que é amanhã de qualquer jeito.
+    */
+    /** Recusas da FONTE, seguidas. Qualquer resposta boa zera. */
+    let recusasSeguidas = 0;
+    const aFonteParouDeAtender = () =>
+      recusasSeguidas >= this.RECUSAS_SEGUIDAS_PARA_PARAR;
+    const passouDoLimiteAbsoluto = () =>
+      Date.now() - inicio > this.LIMITE_ABSOLUTO_MIN * 60_000;
+    /** O motivo para parar agora, ou `null` para continuar. */
+    const motivoParaParar = (): string | null => {
+      if (aFonteParouDeAtender()) {
+        return `o CNJ recusou ${recusasSeguidas} consultas seguidas`;
+      }
+      if (passouDoLimiteAbsoluto()) {
+        return `a rodada passou de ${Math.round(this.LIMITE_ABSOLUTO_MIN / 60)} horas`;
+      }
+      return null;
+    };
 
     try {
       // Ativos E pendentes: um processo recém-cadastrado (PENDENTE) também
@@ -307,11 +415,13 @@ export class ProcessosCronService {
           o lote pela metade sem que o log dissesse onde parou; entre lotes o
           corte é limpo e custa, no pior caso, os dez do lote em curso.
         */
-        if (estourouOTempo()) {
-          rodada.paradosPorTempo = ids.length - inicioLote;
+        const motivo = motivoParaParar();
+        if (motivo) {
+          rodada.naoConsultados = ids.length - inicioLote;
+          rodada.porqueParou = motivo;
           this.logger.warn(
-            `[DATAJUD-SYNC] Rodada parada por tempo (${this.ORCAMENTO_DA_RODADA_MIN} minutos): ` +
-              `${rodada.paradosPorTempo} processo(s) ficaram para a próxima noite — ` +
+            `[DATAJUD-SYNC] Rodada encerrada porque ${motivo}: ` +
+              `${rodada.naoConsultados} processo(s) ficaram para a próxima noite — ` +
               'eles entram primeiro, porque a fila ordena pela leitura mais antiga.',
           );
           break;
@@ -326,6 +436,7 @@ export class ProcessosCronService {
           try {
             const { novas } = await this.processos.ressincronizarSilencioso(id);
             rodada.ok++;
+            recusasSeguidas = 0;
             if (novas > 0) {
               rodada.comNovas++;
               rodada.novas += novas;
@@ -333,6 +444,15 @@ export class ProcessosCronService {
             }
           } catch (err) {
             rodada.falhas++;
+            /*
+              SÓ A RECUSA DA FONTE CONTA. `valeTentarDeNovo` é cota ou demora:
+              o CNJ não atendeu. "Tribunal desconhecido" e "número inválido"
+              são defeito DAQUELE processo, e nesses casos o CNJ respondeu —
+              zerar aqui é o que impede um punhado de processos ruins de
+              passar por "a fonte caiu".
+            */
+            if (valeTentarDeNovo(err)) recusasSeguidas++;
+            else recusasSeguidas = 0;
             // Isola a falha (rate limit, CNJ fora do ar, tribunal desconhecido).
             // O motivo detalhado já foi para `logs_sincronizacao_datajud`.
             this.logger.warn(`[DATAJUD-SYNC] Falha no processo ${id}: ${(err as Error).message}`);
@@ -349,9 +469,14 @@ export class ProcessosCronService {
               E a segunda tentativa FUNCIONA: medido no fim das últimas
               rodadas, 17 de 19, 13 de 16, 18 de 20 e 28 de 28 deram certo.
             */
-            if (valeTentarDeNovo(err) && paraTentarDeNovo.length < this.TETO_DA_REPESCAGEM) {
-              paraTentarDeNovo.push(id);
-            }
+            /*
+              SEM TETO DE CONTAGEM (03/11/2026). A fila já é limitada por
+              construção: ela só cresce enquanto o laço principal segue, e o
+              laço principal desiste quando a fonte para de atender. Um teto
+              de 40 em cima disso jogava fora 100 processos em 45 noites, todos
+              por "tente daqui a pouco" — e nenhum deles teve o daqui a pouco.
+            */
+            if (valeTentarDeNovo(err)) paraTentarDeNovo.push(id);
           }
           if (i < lote.length - 1) await this.aguardar();
         }
@@ -402,16 +527,19 @@ export class ProcessosCronService {
         await new Promise((r) => setTimeout(r, this.PAUSA_APOS_COTA));
         for (let i = 0; i < paraTentarDeNovo.length; i++) {
           /*
-            A REPESCAGEM TAMBÉM TEM HORA PARA ACABAR. Ela aceita até 40
-            processos a ~58s cada — sozinha, quase 40 minutos. Sem o corte, o
-            orçamento do laço principal seria contornado justamente na parte
-            da rodada que roda mais tarde.
+            A REPESCAGEM SEGUE A MESMA RÉGUA DO LAÇO PRINCIPAL: ela para se o
+            CNJ tiver parado de atender, e não porque deu a hora. Ela existe
+            justamente para o caso "a cota era de outro" — insistir enquanto a
+            fonte responde é o ponto dela; insistir depois que a fonte fechou
+            é só gastar madrugada.
           */
-          if (estourouOTempo()) {
-            rodada.paradosPorTempo += paraTentarDeNovo.length - i;
+          const motivo = motivoParaParar();
+          if (motivo) {
+            rodada.naoConsultados += paraTentarDeNovo.length - i;
+            rodada.porqueParou = motivo;
             this.logger.warn(
-              `[DATAJUD-SYNC] Repescagem parada por tempo: ${paraTentarDeNovo.length - i} ` +
-                'processo(s) ficaram para a próxima noite.',
+              `[DATAJUD-SYNC] Repescagem encerrada porque ${motivo}: ` +
+                `${paraTentarDeNovo.length - i} processo(s) ficaram para a próxima noite.`,
             );
             break;
           }
@@ -421,11 +549,14 @@ export class ProcessosCronService {
             rodada.ok++;
             rodada.falhas--;
             rodada.recuperados++;
+            recusasSeguidas = 0;
             if (novas > 0) {
               rodada.comNovas++;
               rodada.novas += novas;
             }
           } catch (err) {
+            if (valeTentarDeNovo(err)) recusasSeguidas++;
+            else recusasSeguidas = 0;
             this.logger.warn(
               `[DATAJUD-SYNC] ${id} falhou de novo depois da cota: ${(err as Error).message}`,
             );

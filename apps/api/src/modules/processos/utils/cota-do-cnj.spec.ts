@@ -86,17 +86,28 @@ describe('a repescagem da rodada', () => {
    * Esses perdiam a noite inteira sem uma segunda tentativa.
    */
   it('junta quem o CNJ não respondeu — cota OU demora — e tenta de novo no fim', () => {
-    expect(cron).toContain('if (valeTentarDeNovo(err) && paraTentarDeNovo.length < this.TETO_DA_REPESCAGEM) {');
+    expect(cron).toContain('if (valeTentarDeNovo(err)) paraTentarDeNovo.push(id);');
     expect(cron).toContain('if (paraTentarDeNovo.length) {');
   });
 
   /**
-   * O TETO DA FILA. Com o timeout dentro dela, uma noite ruim do CNJ mandaria
-   * 50 ou 100 processos para a repescagem — e a rodada, que já leva 2h, bateria
-   * no cron do DJEN das 05h.
+   * O TETO DA FILA SAIU — 03/11/2026.
+   *
+   * Eram 40, justificados por "a rodada bateria no cron do DJEN das 05h". Essa
+   * razão morreu quando o Diário passou a esperar a vez. E o teto custava
+   * leitura: medido em 45 noites, ele mordeu em **4** e deixou **100
+   * processos** sem segunda chance — 41 em 29/10, 35 em 23/10, 23 em 28/10 e 1
+   * em 17/10. São as mesmas noites lentas do CNJ, ou seja, ele só agia quando
+   * mais doía, e sobre processos que não falharam por defeito deles: levaram
+   * 429 ou timeout, que quer dizer "tente daqui a pouco".
+   *
+   * Quem põe fim no pior caso agora é a saúde da fonte, e ela é melhor: a fila
+   * não cresce além do que o laço principal enfileirou antes de desistir, e a
+   * repescagem consulta a mesma régua antes de cada tentativa.
    */
-  it('a repescagem tem fim conhecido', () => {
-    expect(cron).toContain('TETO_DA_REPESCAGEM = 40');
+  it('a repescagem não tem mais teto de contagem — quem limita é a saúde da fonte', () => {
+    expect(cron).not.toContain('TETO_DA_REPESCAGEM');
+    expect(cron).toContain('const motivo = motivoParaParar();');
   });
 
   /** A cota é POR MINUTO: esperar menos que isso é repetir dentro da mesma janela. */

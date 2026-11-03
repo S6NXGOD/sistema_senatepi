@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { OrigemSincronizacao } from '@prisma/client';
-import { JOB_DATAJUD_SYNC, JOB_SICONFI_SYNC, comTravaDeJob } from '@core/infra';
+import { JOB_DATAJUD_SYNC, JOB_DJEN_SYNC, JOB_SICONFI_SYNC, comTravaDeJob } from '@core/infra';
 import { PrismaService } from '../../prisma/prisma.service';
 import { pularJobSemModulo } from '../../tenant/job-do-modulo';
 import { integracaoAtiva } from '../../tenant/tenant.config';
@@ -35,7 +35,13 @@ import { VinculoDeEnteService } from './vinculo-de-ente.service';
 @Injectable()
 export class MunicipiosCronService {
   private readonly logger = new Logger(MunicipiosCronService.name);
-  private readonly TRAVA_TTL_MIN = 60;
+  /**
+   * Silêncio que basta para dar esta rodada por morta — não é a duração dela.
+   * A trava se renova a cada minuto enquanto o job vive (ver `comTravaDeJob`),
+   * então este número só governa quanto tempo uma queda no meio da madrugada
+   * segura a vez de quem vem atrás. Quarenta e cinco é o mesmo das outras duas.
+   */
+  private readonly TRAVA_TTL_MIN = 45;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -63,13 +69,22 @@ export class MunicipiosCronService {
           começar limpo. Ceder a vez de vez em quando é mais barato que
           competir toda madrugada.
 
-          Teto menor que o do Diário (60min): os dados do Tesouro mudam uma vez
-          por bimestre, então uma rodada adiada não perde nada — e às 04:00 o
-          DataJud ou já acabou, ou vai entrar na janela do Diário de qualquer
-          jeito.
+          03/11/2026 — ELE PASSOU A ESPERAR OS DOIS, e a ordem é do dono:
+          *"a prioridade é CNJ e DataJud e depois os outros"*. Antes ele só
+          esperava o DataJud, e podia começar em cima do Diário: as duas
+          fontes do CNJ são as que trazem PRAZO, e as contas públicas são
+          número de referência que muda uma vez por bimestre. Adiar o SICONFI
+          não custa nada; atrasar o Diário custa prazo.
+
+          Na prática, numa noite normal ele espera o DataJud (que começa às
+          02:00) e roda bem antes das 05:00, sem nunca ver a trava do Diário.
+          Nas noites ruins ele vai para o fim da fila, que é onde ele pertence.
+
+          O teto largo não é orçamento: a trava bate o ponto, então ela fica
+          vigente só enquanto o job da frente está VIVO.
         */
-        esperaPor: JOB_DATAJUD_SYNC,
-        esperaMaxMinutos: 60,
+        esperaPor: [JOB_DATAJUD_SYNC, JOB_DJEN_SYNC],
+        esperaMaxMinutos: 600,
       },
       async () => {
         /*

@@ -60,31 +60,62 @@ export const DJEN_TETO_RECUPERACAO_DIAS = 60;
 export const DJEN_HISTORICO_POR_RODADA_PADRAO = 200;
 export const DJEN_HISTORICO_MAX_PAGINAS_PADRAO = 10;
 
-/**
- * O ORÇAMENTO DE TEMPO DA RODADA, em minutos (15/09/2026).
+/*
+ * O ORÇAMENTO DE TEMPO DA RODADA SAIU DAQUI — 03/11/2026.
  *
- * A trava do job vale 180 minutos. Se a rodada passasse disso, a trava se
- * soltaria com ela ainda correndo, e a próxima (o robô do dia seguinte, ou o
- * botão do Administrador) entraria disputando a mesma cota do CNJ. Nenhuma
- * noite real chega perto (~13 minutos), mas o pior caso teórico chega a ~220.
+ * Eram 150 minutos, e a razão de ser deles era a trava: se a rodada passasse
+ * do TTL, a linha se soltava com ela correndo e a próxima entrava disputando a
+ * cota do CNJ. O orçamento resolvia o problema da trava CORTANDO A LEITURA.
  *
- * 150 deixa meia hora para o que vem depois das consultas: correlação, rede
- * das propostas, advogados e partes do ato, a conferência da fila no DataJud
- * (até 40 ações) e a tarefa de cadastro. O que para aqui são as passadas 2
- * (histórico) e 3 (janela pelo número); a OAB, que descobre ação nova, roda
- * inteira antes delas. Quem ficou para trás não ganhou carimbo e entra primeiro
- * na noite seguinte: o histórico continua nulo, e a janela ordena pela
- * consulta mais antiga.
+ * A trava passou a bater o ponto (ver `comTravaDeJob`), então ela não expira
+ * mais com o job vivo e não há nada para o orçamento proteger. E ele nunca
+ * disparou em 45 noites: a rodada do Diário leva de 1 a 19 minutos.
+ *
+ * No lugar dele: `DJEN_RECUSAS_SEGUIDAS_PARA_PARAR` (a fonte fechou) e
+ * `DJEN_LIMITE_ABSOLUTO_MIN` (laço preso). A ordem do dono foi explícita —
+ * *"nem que estoure o horário, mas continue para que nenhum processo e
+ * atualização fique de fora"*.
  */
-export const DJEN_ORCAMENTO_DA_RODADA_MIN = 150;
 
-/** A rodada iniciada em `iniciadaEm` (ms) já gastou o orçamento em `agora` (ms)? */
-export function passouDoOrcamento(
+/**
+ * QUANTAS RECUSAS SEGUIDAS DO DIÁRIO ENCERRAM A RODADA — 03/11/2026.
+ *
+ * O orçamento de tempo acima virou trava de segurança (`DJEN_LIMITE_ABSOLUTO_MIN`),
+ * porque o relógio nunca foi o problema: a rodada do Diário leva 1 a 19 minutos
+ * e o corte de 150 nunca disparou em 45 noites. O que acontece de verdade é a
+ * fonte FECHAR — em 02 e 03/11 as 168 consultas da noite falharam, todas elas,
+ * com 403 de bloqueio de origem.
+ *
+ * Doze é mais que o acervo de advogados consultados por noite (a passada 1 faz
+ * uma chamada por OAB), então uma sequência desse tamanho não é azar: é porta
+ * fechada. Abaixo disso, correria o risco de encerrar por causa de um punhado
+ * de OABs ruins seguidas no cadastro.
+ */
+export const DJEN_RECUSAS_SEGUIDAS_PARA_PARAR = 12;
+
+/**
+ * Trava de segurança da rodada do Diário, em minutos — NÃO é orçamento.
+ *
+ * O pior caso teórico da leitura é ~220 minutos (tudo no teto de páginas); o
+ * caso real é 1 a 19. Oito horas é quase o dobro do pior teórico e ainda deixa
+ * a madrugada seguinte livre. Chegar aqui não é lentidão: é laço preso.
+ */
+export const DJEN_LIMITE_ABSOLUTO_MIN = 8 * 60;
+
+/**
+ * A rodada iniciada em `iniciadaEm` (ms) já passou de `limiteMin` em `agora`?
+ *
+ * SEM VALOR PADRÃO, de propósito: o padrão era o orçamento de 150 minutos, e
+ * quem chamasse a função sem pensar herdava um corte de leitura de graça. O
+ * limite agora é uma decisão de quem chama, e a única chamada passa
+ * `DJEN_LIMITE_ABSOLUTO_MIN`.
+ */
+export function passouDoLimite(
   iniciadaEm: number,
   agora: number,
-  orcamentoMin: number = DJEN_ORCAMENTO_DA_RODADA_MIN,
+  limiteMin: number,
 ): boolean {
-  return agora - iniciadaEm >= orcamentoMin * 60_000;
+  return agora - iniciadaEm >= limiteMin * 60_000;
 }
 
 /** Um período de leitura do Diário, em dias de Teresina (inclusivos). */

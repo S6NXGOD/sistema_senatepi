@@ -203,12 +203,26 @@ const MORGANA: UsuarioFalso = {
   oab: '9226', oabUf: 'PI', djenLidoAte: null,
 };
 
+/** Segundo advogado COM OAB — a passada 1 precisa de mais de um alvo. */
+const CARLOS: UsuarioFalso = {
+  id: 'u-carlos', nome: 'Carlos Pereira', nomeExibicao: 'Carlos', role: 'ADVOGADO', ativo: true,
+  oab: '1234', oabUf: 'PI', djenLidoAte: null,
+};
+
 function montar(opcoes: {
   usuarios?: UsuarioFalso[];
   processos?: ProcessoFalso[];
   config?: Record<string, string>;
   lerPorOab?: jest.Mock;
   lerPorProcesso?: jest.Mock;
+  /**
+   * O DIÁRIO ESTÁ RECUSANDO CONSULTAS VINDAS DESTE SERVIDOR?
+   *
+   * É função, e não booleano, porque na produção o estado LIGA no meio da
+   * rodada: a primeira recusa acende `bloqueadoNaOrigem` e as seguintes nem
+   * precisam sair. Testar com um booleano fixo testaria o caso fácil.
+   */
+  bloqueado?: () => boolean;
 }) {
   const usuarios = opcoes.usuarios ?? [MORGANA];
   const processos = opcoes.processos ?? [];
@@ -255,6 +269,9 @@ function montar(opcoes: {
     janelaDias: 3,
     lerPorOab: opcoes.lerPorOab ?? jest.fn(async () => leitura()),
     lerPorProcesso: opcoes.lerPorProcesso ?? jest.fn(async () => leitura({ rotulo: `NPU ${NPU}` })),
+    get bloqueadoNaOrigem() {
+      return opcoes.bloqueado?.() ?? false;
+    },
   };
   const logSync = { registrar: jest.fn(async (..._a: unknown[]) => undefined) };
   const correlacao = { aplicarAposDjen: jest.fn(async () => ({ criadas: 0, enriquecidas: 0 })) };
@@ -457,11 +474,12 @@ describe('quem o robô não enxerga', () => {
     `maiorRecebidaPorConsulta` era calculado e ninguém lia; a parada por tempo é
     processo não lido, e vai na frente, logo depois do ATENÇÃO.
   */
-  it('a linha diz a maior leitura e, na frente, quantos processos ficaram por tempo', async () => {
+  it('a linha diz a maior leitura e, na frente, quantos ficaram e por quê', async () => {
     const { svc, linha } = montar({});
     const base = {
       advogadosConsultados: 8, processosConsultados: 1, recebidas: 60, ingeridas: 12, descartadas: 48, sugeridas: 0,
       advogadosSemOab: 1, falhas: 0, maiorRecebidaPorConsulta: 37, historicosLidos: 0, processosParadosPorTempo: 0,
+      oabsNaoConsultadas: 0, porqueParou: null as string | null,
       consultasNoTeto: [] as string[], etapasComFalha: [] as string[],
     };
     const registrar = (r: typeof base) =>
@@ -473,10 +491,16 @@ describe('quem o robô não enxerga', () => {
         'Varredura concluída: 9 consulta(s), 12 publicação(ões) nova(s), maior leitura: 37 itens.',
     );
 
-    await registrar({ ...base, falhas: 1, processosParadosPorTempo: 42 });
+    await registrar({
+      ...base,
+      falhas: 1,
+      processosParadosPorTempo: 42,
+      porqueParou: 'o Diário recusou 12 consultas seguidas',
+    });
     expect(linha().mensagemErro).toBe(
       'ATENÇÃO: 1 advogado(s) sem OAB não foram consultados. ' +
-        'Rodada parada por tempo: 42 processos ficaram para a próxima noite. ' +
+        'Rodada encerrada porque o Diário recusou 12 consultas seguidas: ' +
+        '42 processos ficaram para a próxima noite. ' +
         'Varredura concluída com 1 de 10 consulta(s) em falha, maior leitura: 37 itens.',
     );
   });
@@ -620,13 +644,24 @@ describe('o histórico pelo número, uma vez por processo', () => {
   });
 
   /*
-    O ORÇAMENTO DE TEMPO (15/09/2026). Cada consulta "leva" 80 minutos no relógio
-    falso: a terceira já começaria depois dos 150, e a rodada para ali. Quem
-    ficou não ganha carimbo nenhum (o histórico continua nulo e entra primeiro na
-    noite seguinte), é contado uma vez só mesmo estando nas duas listas, e a
-    frase vai na frente da linha de resumo.
+    A RODADA PARA QUANDO A PORTA FECHA — e não quando dá a hora (03/11/2026).
+
+    Antes, o que parava a rodada era um orçamento de 150 minutos. Ele nunca
+    disparou em 45 noites (a rodada do Diário leva de 1 a 19 minutos), e
+    protegia uma janela que deixou de existir quando o Diário passou a esperar
+    a vez do DataJud em vez de começar às 05:00 no relógio.
+
+    O que ACONTECE DE VERDADE está medido: nas noites de 02 e 03/11 as **168
+    consultas da rodada falharam**, todas com 403 de bloqueio de origem do
+    CloudFront do CNJ. Duas madrugadas inteiras batendo numa porta fechada, uma
+    chamada por vez, com pausa entre elas.
+
+    Aqui a primeira consulta falha e acende `bloqueadoNaOrigem`, como na
+    produção: a rodada para na segunda, quem ficou não ganha carimbo nenhum (o
+    histórico continua nulo e entra primeiro na noite seguinte) e a linha de
+    resumo diz O MOTIVO, não "deu a hora".
   */
-  it('passou de 150 minutos: para antes da próxima consulta, sem carimbo, e diz quantos ficaram', async () => {
+  it('a fonte fecha no meio: para na consulta seguinte, sem carimbo, e diz por quê', async () => {
     relogio('2026-09-15T08:00:00Z');
     const proc = (id: string, npu: string, criadoEm: string): ProcessoFalso => ({
       id, numeroCNJ: npu, createdAt: new Date(criadoEm), ultimaConsultaDjen: null, djenHistoricoLidoEm: null,
@@ -636,29 +671,67 @@ describe('o histórico pelo número, uma vez por processo', () => {
       proc('p-b', '00000020220265220002', '2026-09-05T12:00:00Z'),
       proc('p-c', '00000030320265220003', '2026-09-10T12:00:00Z'),
     ];
-    const { svc, djen, prisma, linha } = montar({ usuarios: [], processos });
-    const oitentaMinutos = async () => {
-      jest.setSystemTime(Date.now() + 80 * 60_000);
-    };
+    let fechou = false;
+    const { svc, djen, prisma, linha } = montar({
+      usuarios: [],
+      processos,
+      bloqueado: () => fechou,
+      // A primeira consulta leva o 403 e, a partir dela, o serviço já sabe.
+      lerPorProcesso: jest.fn(async () => {
+        fechou = true;
+        throw new Error('403 bloqueio de origem');
+      }),
+    });
 
-    const resumo = await svc.varrer(oitentaMinutos);
+    const resumo = await svc.varrer();
 
-    expect(djen.lerPorProcesso.mock.calls.map((c) => c[0])).toEqual(['00000030320265220003', '00000020220265220002']);
-    const carimbados = (prisma.processo.update.mock.calls as unknown as [{ where: { id: string } }][]).map((c) => c[0].where.id);
-    expect(carimbados).toEqual(['p-c', 'p-b']);
-    expect(resumo.processosParadosPorTempo).toBe(1);
-    expect(linha().mensagemErro).toBe(
-      'Rodada parada por tempo: 1 processo ficou para a próxima noite. ' +
-        'Varredura concluída: 2 consulta(s), 0 publicação(ões) nova(s), 2 histórico(s) lido(s) pelo número.',
-    );
+    // Saiu UMA consulta, não três: a segunda já encontrou a porta fechada.
+    expect(djen.lerPorProcesso).toHaveBeenCalledTimes(1);
+    expect(prisma.processo.update).not.toHaveBeenCalled();
+    /*
+      TRÊS, e não dois: o primeiro foi TENTADO e falhou, então ele também ficou
+      sem leitura e volta amanhã. Contar só os que nem saíram esconderia da
+      linha de resumo justamente o processo que levou o 403.
+    */
+    expect(resumo.processosParadosPorTempo).toBe(3);
+    expect(resumo.porqueParou).toContain('bloqueio de origem');
+    expect(linha().mensagemErro).toContain('Rodada encerrada porque o CNJ está recusando');
+    // E nunca culpa o relógio por algo que é da porta do CNJ.
+    expect(linha().mensagemErro).not.toContain('por tempo');
   });
 
-  it('noite normal, bem abaixo do orçamento: ninguém fica para trás e a frase não aparece', async () => {
+  /*
+    E A PASSADA 1 TAMBÉM PARA. Era a única sem nenhum corte, e é justamente a
+    que gastou as 168 chamadas perdidas: uma por OAB, todas recusadas. Ela é
+    também a que descobre AÇÃO NOVA, então o resumo conta os advogados que
+    ficaram de fora separado dos processos.
+  */
+  it('a fonte fechada também interrompe a busca por OAB, e o resumo conta os advogados', async () => {
+    relogio('2026-09-15T08:00:00Z');
+    let fechou = false;
+    const { svc, djen, linha } = montar({
+      usuarios: [MORGANA, CARLOS],
+      lerPorOab: jest.fn(async () => {
+        fechou = true;
+        throw new Error('403 bloqueio de origem');
+      }),
+      bloqueado: () => fechou,
+    });
+
+    const resumo = await svc.varrer();
+
+    expect(djen.lerPorOab).toHaveBeenCalledTimes(1);
+    expect(resumo.oabsNaoConsultadas).toBe(1);
+    expect(linha().mensagemErro).toContain('1 advogado ficaram para a próxima noite');
+  });
+
+  it('noite normal: ninguém fica para trás e a frase não aparece', async () => {
     relogio('2026-09-15T08:00:00Z');
     const { svc, linha } = montar({ processos: [recente, jaLido] });
     const resumo = await svc.varrer(async () => { jest.setSystemTime(Date.now() + 5_000); });
     expect(resumo.processosParadosPorTempo).toBe(0);
-    expect(linha().mensagemErro).not.toMatch(/parada por tempo/);
+    expect(resumo.oabsNaoConsultadas).toBe(0);
+    expect(linha().mensagemErro).not.toMatch(/Rodada encerrada/);
   });
 
   it('zero no ambiente desliga a colheita, e o número continua toda noite', async () => {

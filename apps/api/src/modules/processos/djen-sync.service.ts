@@ -36,14 +36,15 @@ import {
   diaDaColunaDate,
   DJEN_HISTORICO_MAX_PAGINAS_PADRAO,
   DJEN_HISTORICO_POR_RODADA_PADRAO,
-  DJEN_ORCAMENTO_DA_RODADA_MIN,
+  DJEN_LIMITE_ABSOLUTO_MIN,
+  DJEN_RECUSAS_SEGUIDAS_PARA_PARAR,
   DJEN_TETO_RECUPERACAO_DIAS,
   faltaNaOab,
   inteiroDoAmbiente,
   janelaDaOab,
   janelaDoNumero,
   oabConsultavel,
-  passouDoOrcamento,
+  passouDoLimite,
   podeCarimbar,
   type CoberturaDoDiario,
 } from './utils/djen-leitura.util';
@@ -137,11 +138,27 @@ export interface ResumoVarreduraDjen {
   /** Processos cujo histórico foi lido inteiro pelo número e carimbado nesta rodada. */
   historicosLidos: number;
   /**
-   * Processos que ficaram sem consulta porque a rodada passou do orçamento de
-   * tempo (`DJEN_ORCAMENTO_DA_RODADA_MIN`), contados uma vez só mesmo que
-   * estivessem nas duas passadas (15/09/2026). Entram primeiro na noite seguinte.
+   * Processos que ficaram sem consulta porque a rodada foi encerrada antes do
+   * fim, contados uma vez só mesmo que estivessem nas duas passadas
+   * (15/09/2026). Entram primeiro na noite seguinte.
    */
   processosParadosPorTempo: number;
+  /**
+   * Advogados que ficaram sem consulta por OAB na passada 1, pelo mesmo motivo.
+   *
+   * Conta separada da dos processos porque a passada 1 é a que descobre AÇÃO
+   * NOVA: perder dez processos conhecidos atrasa dez leituras, perder dez OABs
+   * pode esconder uma ação que ninguém sabe que existe.
+   */
+  oabsNaoConsultadas?: number;
+  /**
+   * POR QUE a rodada parou antes do fim — nunca "deu a hora" (03/11/2026).
+   *
+   * A rodada só é encerrada quando a FONTE para de atender, e o motivo precisa
+   * chegar à linha de resumo: "42 ficaram para amanhã" sem motivo manda a
+   * equipe procurar defeito aqui dentro, quando o problema está na porta do CNJ.
+   */
+  porqueParou?: string | null;
   /**
    * Audiências que o leitor do Diário colocou na agenda nesta rodada.
    *
@@ -360,8 +377,45 @@ export class DjenSyncService {
     aguardar: () => Promise<void>,
     diasDeHistorico?: number,
   ): Promise<void> {
-    // O relógio do orçamento de tempo (15/09/2026): começa com a rodada.
+    // O relógio da trava de segurança (15/09/2026): começa com a rodada.
     const iniciadaEm = Date.now();
+    /*
+      A RODADA PARA QUANDO O DIÁRIO FECHA — e não quando dá a hora (03/11/2026).
+
+      Medido na produção: nas noites de **02 e 03/11 as 168 consultas da rodada
+      falharam**, todas com o mesmo motivo — o CloudFront do CNJ recusando por
+      origem da requisição (403). Duas madrugadas inteiras batendo numa porta
+      fechada, uma por uma, com pausa entre elas. Em 31/10 e 01/11 as mesmas
+      168 passaram normalmente, então não é defeito nosso: é a rota de saída.
+
+      Até aqui nada olhava isso. A passada 1 (OAB) não tinha nem orçamento, e
+      era justamente ela que gastava a noite. Agora as três passadas perguntam
+      antes de cada consulta se a fonte ainda atende.
+
+      ZERAR NO SUCESSO é o que separa "a fonte caiu" de "tropecei": uma OAB
+      inválida no meio não encerra rodada nenhuma.
+    */
+    let recusasSeguidas = 0;
+    /** O motivo para encerrar a rodada agora, ou `null` para continuar. */
+    const fonteFechou = (): string | null => {
+      /*
+        O bloqueio de origem é a única falha que o próprio serviço já reconhece
+        e lembra (`bloqueadoNaOrigem` fica ligado por alguns minutos depois do
+        403). Perguntar a ele é mais honesto que contar falhas: o 403 do
+        CloudFront não é cota nem demora, e um contador genérico levaria 25
+        consultas para descobrir o que ele sabe na primeira.
+      */
+      if (this.djen.bloqueadoNaOrigem) {
+        return 'o CNJ está recusando as consultas vindas deste servidor (bloqueio de origem)';
+      }
+      if (recusasSeguidas >= DJEN_RECUSAS_SEGUIDAS_PARA_PARAR) {
+        return `o Diário recusou ${recusasSeguidas} consultas seguidas`;
+      }
+      if (passouDoLimite(iniciadaEm, Date.now(), DJEN_LIMITE_ABSOLUTO_MIN)) {
+        return `a rodada passou de ${Math.round(DJEN_LIMITE_ABSOLUTO_MIN / 60)} horas`;
+      }
+      return null;
+    };
     /*
       O DIA DE HOJE É O DE TERESINA, calculado uma vez para a rodada inteira.
 
@@ -421,7 +475,25 @@ export class DjenSyncService {
       );
     }
 
+    /** Advogados que ficaram sem consulta porque a fonte fechou no meio. */
+    let oabsNaoConsultadas = 0;
     for (const adv of advogados) {
+      /*
+        PERGUNTA ANTES DE CADA CONSULTA se o Diário ainda atende. É esta linha
+        que teria poupado as 168 chamadas perdidas de 02 e 03/11: na primeira
+        recusa por origem, o serviço já sabe, e o resto da noite para aqui com
+        o motivo escrito no lugar de 168 avisos iguais.
+      */
+      const fechou = fonteFechou();
+      if (fechou) {
+        oabsNaoConsultadas = advogados.length - advogados.indexOf(adv);
+        resumo.porqueParou = fechou;
+        this.logger.warn(
+          `[DJEN-SYNC] Varredura encerrada porque ${fechou}: ` +
+            `${oabsNaoConsultadas} advogado(s) ficaram sem consulta nesta rodada.`,
+        );
+        break;
+      }
       /*
         A JANELA SE RECUPERA SOZINHA (14/09/2026).
 
@@ -452,6 +524,8 @@ export class DjenSyncService {
             data: { djenLidoAte: colunaDateDoDia(janela.ate) },
           });
         }
+        // A fonte respondeu — mesmo lida pela metade, ela atendeu.
+        recusasSeguidas = 0;
         if (leitura.interrompidaPor) {
           resumo.falhas++;
           this.logger.warn(
@@ -462,6 +536,7 @@ export class DjenSyncService {
         }
       } catch (err) {
         resumo.falhas++;
+        recusasSeguidas++;
         this.anotarFalha(resumo, err);
         // Isola a falha: um advogado com OAB inválida não pode derrubar a
         // varredura dos demais.
@@ -492,8 +567,10 @@ export class DjenSyncService {
     const semHistorico = await this.processosSemHistorico();
     for (let i = 0; i < semHistorico.length; i++) {
       const proc = semHistorico[i];
-      if (passouDoOrcamento(iniciadaEm, Date.now())) {
+      const fechou = fonteFechou();
+      if (fechou) {
         semHistorico.slice(i).forEach((p) => paradosPorTempo.add(p.id));
+        resumo.porqueParou = fechou;
         break;
       }
       /*
@@ -504,26 +581,31 @@ export class DjenSyncService {
         naquela noite. E se a consulta sem data falhasse sempre, ele nunca era
         lido pela janela, que é o furo que a consulta noturna veio fechar.
       */
-      if (await this.consultarNumeroNaRodada(resumo, proc, hoje, true)) {
-        historicoLidoAgora.push(proc.id);
-      }
+      const leu = await this.consultarNumeroNaRodada(resumo, proc, hoje, true);
+      if (leu) historicoLidoAgora.push(proc.id);
+      // Processo sem NPU não é consulta nenhuma, então não fala da fonte.
+      if (proc.numeroCNJ) recusasSeguidas = leu ? 0 : recusasSeguidas + 1;
       await aguardar();
     }
 
     // ---- 3) O número de todo processo vivo, desde a última consulta ----
     const porNumero = await this.processosParaConsultarPorNumero(historicoLidoAgora);
     for (let i = 0; i < porNumero.length; i++) {
-      if (passouDoOrcamento(iniciadaEm, Date.now())) {
+      const fechou = fonteFechou();
+      if (fechou) {
         porNumero.slice(i).forEach((p) => paradosPorTempo.add(p.id));
+        resumo.porqueParou = fechou;
         break;
       }
-      await this.consultarNumeroNaRodada(resumo, porNumero[i], hoje, false);
+      const leu = await this.consultarNumeroNaRodada(resumo, porNumero[i], hoje, false);
+      if (porNumero[i].numeroCNJ) recusasSeguidas = leu ? 0 : recusasSeguidas + 1;
       await aguardar();
     }
     resumo.processosParadosPorTempo = paradosPorTempo.size;
+    resumo.oabsNaoConsultadas = oabsNaoConsultadas;
     if (paradosPorTempo.size) {
       this.logger.warn(
-        `[DJEN-SYNC] Rodada parada por tempo (${DJEN_ORCAMENTO_DA_RODADA_MIN} minutos): ` +
+        `[DJEN-SYNC] Rodada encerrada porque ${resumo.porqueParou ?? 'a fonte parou'}: ` +
           `${paradosPorTempo.size} processo(s) ficaram para a próxima noite.`,
       );
     }
@@ -1943,13 +2025,23 @@ export class DjenSyncService {
       depois dela o teto (no máximo 5 itens) e as etapas (com orçamento).
     */
     /*
-      A RODADA PARADA POR TEMPO TAMBÉM VAI NA FRENTE (15/09/2026): fala de
-      processos que não foram lidos, como o teto. Curta e fixa, logo depois do
-      ATENÇÃO, para sobreviver ao corte de 500.
+      A RODADA ENCERRADA ANTES DO FIM TAMBÉM VAI NA FRENTE (15/09/2026): fala
+      de processos que não foram lidos, como o teto. Curta e fixa, logo depois
+      do ATENÇÃO, para sobreviver ao corte de 500.
+
+      03/11/2026: VAI COM O MOTIVO. A frase dizia "parada por tempo", e desde
+      hoje o tempo não é mais o que encerra rodada — a fonte ter fechado é. Ler
+      "parada por tempo" numa noite em que o CNJ recusou tudo manda a equipe
+      procurar lentidão nossa em vez da porta fechada dele.
     */
     const paradosPorTempo = resumo.processosParadosPorTempo ?? 0;
-    const avisoDeTempo = paradosPorTempo > 0
-      ? `Rodada parada por tempo: ${paradosPorTempo} ${paradosPorTempo === 1 ? 'processo ficou' : 'processos ficaram'} para a próxima noite. `
+    const oabsDeFora = resumo.oabsNaoConsultadas ?? 0;
+    const naoLidos = paradosPorTempo + oabsDeFora;
+    const avisoDeTempo = naoLidos > 0
+      ? `Rodada encerrada porque ${resumo.porqueParou ?? 'a fonte parou de atender'}: ` +
+        `${paradosPorTempo} ${paradosPorTempo === 1 ? 'processo' : 'processos'}` +
+        `${oabsDeFora > 0 ? ` e ${oabsDeFora} ${oabsDeFora === 1 ? 'advogado' : 'advogados'}` : ''}` +
+        ' ficaram para a próxima noite. '
       : '';
     /*
       A MAIOR LEITURA ENTRA NA FRASE (15/09/2026). O número era calculado a cada
