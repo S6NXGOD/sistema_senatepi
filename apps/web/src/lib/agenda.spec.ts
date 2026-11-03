@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   CATEGORIA_CANCELAMENTO_LABEL,
   DESFECHO_LABEL,
@@ -277,5 +279,27 @@ describe('rótulos novos', () => {
 
   it('SUBSTITUIDA deixa de aparecer como código cru', () => {
     expect(CATEGORIA_CANCELAMENTO_LABEL.SUBSTITUIDA).toBe('Substituída por nova conclusão');
+  });
+});
+
+/**
+ * O ESPELHO DOS DOIS LADOS — a mesma armadilha de SUBSTITUIDA.
+ *
+ * O catálogo das categorias vive na API e o rótulo, aqui. Quem acrescenta uma
+ * categoria lá e esquece daqui põe o código cru na gaveta.
+ */
+describe('a categoria do encerramento por tolerância', () => {
+  it('tem rótulo de gente, e não o código cru', () => {
+    expect(CATEGORIA_CANCELAMENTO_LABEL.SEM_INTERACAO).toBe('Encerrada por falta de interação');
+  });
+
+  it('o catálogo da API e o rótulo do web não divergem', () => {
+    const api = readFileSync(
+      join(__dirname, '../../../api/src/modules/agenda/desfechos.catalogo.ts'),
+      'utf8',
+    );
+    const slugs = [...api.matchAll(/slug: '([A-Z_]+)'/g)].map((m) => m[1]);
+    const semRotulo = slugs.filter((s) => !CATEGORIA_CANCELAMENTO_LABEL[s] && !DESFECHO_LABEL[s]);
+    expect(semRotulo).toEqual([]);
   });
 });

@@ -270,6 +270,7 @@ function montar(opcoes: {
     vinculo as never,
     { reconciliarTodos: jest.fn(async () => undefined) } as never,
     { varrer: jest.fn(async () => SEM_PAUTA) } as never,
+    { encerrarSemInteracao: async () => ({ encerradas: 0, semNinguemEntrar: 0 }) } as never,
   );
   const linha = () => logSync.registrar.mock.calls.at(-1)?.[0] as { sucesso: boolean; mensagemErro: string };
   return { svc, prisma, djen, logSync, correlacao, vinculo, linha };
@@ -872,6 +873,7 @@ describe('o histórico antigo nunca vira trabalho', () => {
       { aplicarNosProcessos: jest.fn(async () => undefined), aplicarNoProcesso: jest.fn(async () => undefined) } as never,
       { reconciliarTodos: jest.fn(async () => undefined) } as never,
       { varrer: jest.fn(async () => SEM_PAUTA) } as never,
+      { encerrarSemInteracao: async () => ({ encerradas: 0, semNinguemEntrar: 0 }) } as never,
     );
     const pub = (hash: string) => banco.comunicacoes.find((c) => c.hash === hash)!;
     return { ...banco, svc, caixa, pub, origem };

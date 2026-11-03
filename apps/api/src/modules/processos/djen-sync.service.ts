@@ -23,6 +23,7 @@ import {
 import { chaveOab, separarAdvogadosDoAto } from './utils/advogados-do-ato.util';
 import { VinculoDeAdvogadoService } from './vinculo-de-advogado.service';
 import { PartesDoDiarioService } from './partes-do-diario.service';
+import { AgendaService } from '../agenda/agenda.service';
 import { AudienciasDoDiarioService } from './audiencias-do-diario.service';
 import {
   DIAS_RECHECAGEM_DORMENTE,
@@ -150,6 +151,8 @@ export interface ResumoVarreduraDjen {
    * teria como saber que ela estava faminta.
    */
   pautasAgendadas: number;
+  /** Atividades encerradas por falta de interação (margem de tolerância). */
+  atividadesEncerradas: number;
   /**
    * Etapas finais que quebraram e foram puladas, com o motivo curto.
    *
@@ -243,6 +246,7 @@ export class DjenSyncService {
     private readonly vinculoDeAdvogado: VinculoDeAdvogadoService,
     private readonly partesDoDiario: PartesDoDiarioService,
     private readonly audienciasDoDiario: AudienciasDoDiarioService,
+    private readonly agenda: AgendaService,
   ) {
     this.maxProcessosPorRodada =
       Number(this.config.get('DJEN_MAX_PROCESSOS_POR_RODADA')) || 300;
@@ -336,6 +340,7 @@ export class DjenSyncService {
       historicosLidos: 0,
       processosParadosPorTempo: 0,
       pautasAgendadas: 0,
+      atividadesEncerradas: 0,
       etapasComFalha: [],
     };
     let quebrou: string | null = null;
@@ -575,6 +580,18 @@ export class DjenSyncService {
     });
     await this.etapa(resumo, 'partes do ato', async () => {
       await this.reporPartesDoAto();
+    });
+    /*
+      A AGENDA NÃO PODE VIRAR DEPÓSITO — e esta etapa é o que impede.
+
+      Mora aqui, e não num cron próprio, porque é a mesma rodada diária que já
+      cuida das outras pendências da agenda (propostas esquecidas, tarefa de
+      cadastro, pauta). Um agendador a mais seria um a mais para alguém
+      descobrir que parou.
+    */
+    await this.etapa(resumo, 'atividade sem interação', async () => {
+      const r = await this.agenda.encerrarSemInteracao();
+      resumo.atividadesEncerradas = r.encerradas;
     });
     await this.etapa(resumo, 'o outro lado da fila', async () => {
       await this.completarOutroLadoDaFila();

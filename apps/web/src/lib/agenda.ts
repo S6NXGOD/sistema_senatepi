@@ -192,8 +192,12 @@ export interface Compromisso {
    *
    * Os anexos moram no rodapé da gaveta; para saber SE existem era preciso
    * rolar tudo. É só a contagem: a lista continua na gaveta.
+   *
+   * `origemMovimentacoes` diz DE QUAL ROBÔ a tarefa veio. Opcional pela janela
+   * de troca: sem ele a gaveta não afirma a origem, em vez de chutar — ver o
+   * bloco "Registrado por".
    */
-  _count?: { anexos: number };
+  _count?: { anexos: number; origemMovimentacoes?: number };
   /**
    * A PRÉVIA DA TRIAGEM — o que o filiado pediu, em uma linha.
    *
@@ -482,6 +486,12 @@ export const CATEGORIA_CANCELAMENTO_LABEL: Record<string, string> = {
   INDISPONIBILIDADE: 'Indisponibilidade do sindicato',
   DUPLICIDADE: 'Agendada por engano',
   PERDEU_OBJETO: 'Perdeu o objeto',
+  /**
+   * A MARGEM DE TOLERÂNCIA (03/11/2026). O sistema encerra o que ficou 20 dias
+   * de expediente sem ninguém abrir, iniciar ou anotar. Sem o rótulo aqui a
+   * gaveta mostraria o código cru — o mesmo defeito de SUBSTITUIDA.
+   */
+  SEM_INTERACAO: 'Encerrada por falta de interação',
 };
 
 /** Opções de desfecho do tipo da atividade. */

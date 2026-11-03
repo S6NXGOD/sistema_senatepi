@@ -272,6 +272,7 @@ describe('as etapas finais da varredura do DJEN', () => {
       vinculo as never,
       partes as never,
       pauta as never,
+      { encerrarSemInteracao: async () => ({ encerradas: 0, semNinguemEntrar: 0 }) } as never,
     );
     return { svc, prisma, logSync, caixa, vinculo, partes, pauta };
   };

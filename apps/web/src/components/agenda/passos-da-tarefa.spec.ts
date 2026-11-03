@@ -42,8 +42,20 @@ describe('a ordem da gaveta', () => {
    */
   it('credita o robô certo', () => {
     expect(DRAWER).toContain("? 'Robô de publicações (DJEN)'");
-    expect(DRAWER).toContain(": 'Robô de prazos (DataJud)'");
+    expect(DRAWER).toContain("? 'Robô de prazos (DataJud)'");
     expect(DRAWER).toContain('c.origemComunicacoes?.length');
+  });
+
+  /*
+    E SÃO TRÊS CASOS, não dois (03/11/2026). O `else` creditava o DataJud a
+    qualquer tarefa automática sem publicação — e mentiu nas cinco "Conferir de
+    que lado estamos no processo", que nasceram da comparação entre a ficha e o
+    Diário, sem publicação E sem movimentação. Agora a movimentação ligada é
+    que credita o robô de prazos, e faltando as duas o sistema não afirma fonte.
+  */
+  it('sem publicação e sem movimentação, não inventa a fonte', () => {
+    expect(DRAWER).toContain('c._count?.origemMovimentacoes');
+    expect(DRAWER).toContain("'Conferência automática do sistema'");
   });
 });
 

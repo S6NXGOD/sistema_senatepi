@@ -488,6 +488,27 @@ export const CATEGORIAS_CANCELAMENTO: CategoriaCancelamento[] = [
     label: 'Perdeu o objeto',
     ajuda: 'A demanda deixou de existir antes da data.',
   },
+  /**
+   * NINGUÉM TOCOU, E A AGENDA NÃO PODE VIRAR DEPÓSITO.
+   *
+   * O dono, em 03/11/2026: *"uma atividade que possui prazo, se o advogado
+   * perder esse prazo máximo, a atividade ser cancelada automaticamente e
+   * dizer que não interagiu"*. É `apenasSistema` pela mesma razão de
+   * SUBSTITUIDA: ninguém cancela algo "porque não mexeu nela" — isso é uma
+   * constatação do relógio, não uma escolha de gente.
+   *
+   * O CORTE SAIU DA PRÓPRIA BASE. Das 51 tarefas do robô já concluídas, 28
+   * foram fechadas no dia marcado ou antes, 19 em até 5 dias úteis, 1 em 10 e
+   * 3 em 15. **Nenhuma passou de 15.** Vinte dias de expediente é, portanto,
+   * cinco dias de folga sobre o pior caso que já existiu — e ainda assim
+   * encerra em cerca de um mês de calendário.
+   */
+  {
+    slug: 'SEM_INTERACAO',
+    label: 'Encerrada por falta de interação',
+    ajuda: 'Passou do prazo de tolerância sem ninguém abrir, iniciar ou anotar nada.',
+    apenasSistema: true,
+  },
 ];
 
 export const CATEGORIA_CANCELAMENTO_LABEL: Record<string, string> =

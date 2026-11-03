@@ -89,3 +89,30 @@ describe('a truncagem come a parte previsível', () => {
     expect(bloco.slice(0, 500)).toMatch(/max-w-\[\d+%\]/);
   });
 });
+
+/**
+ * QUAL ROBÔ — e "nenhum dos dois" é uma resposta.
+ *
+ * A gaveta decidia pela presença de `origemComunicacoes`: tendo, "Robô de
+ * publicações (DJEN)"; não tendo, AFIRMAVA "Robô de prazos (DataJud)". Esse
+ * `else` era chute, e mentiu nas cinco "Conferir de que lado estamos no
+ * processo" que o dono viu em 03/11/2026 — nasceram da comparação entre a
+ * ficha e o Diário, sem publicação e sem movimentação ligadas, e a gaveta
+ * mandava procurar a origem na aba errada.
+ */
+describe('de qual robô veio a atividade', () => {
+  const GAVETA = readFileSync(path.join(__dirname, 'compromisso-drawer.tsx'), 'utf8');
+
+  it('publicação ligada é o robô do Diário', () => {
+    expect(GAVETA).toContain("'Robô de publicações (DJEN)'");
+  });
+
+  it('movimentação ligada é o robô de prazos — e a contagem é que decide', () => {
+    expect(GAVETA).toContain('c._count?.origemMovimentacoes');
+    expect(GAVETA).toContain("'Robô de prazos (DataJud)'");
+  });
+
+  it('sem as duas, não afirma fonte nenhuma', () => {
+    expect(GAVETA).toContain("'Conferência automática do sistema'");
+  });
+});

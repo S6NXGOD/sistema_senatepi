@@ -43,6 +43,16 @@ export const DIAS_ENTRE_AVISOS = 7;
 import { nivelEfetivo } from '../../common/permissions/permissoes.constants';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { ultimosUsosReais } from '../dashboard/ultimo-acesso.util';
+import { diasUteisEntre } from '../dashboard/dias-uteis';
+
+/**
+ * A MARGEM DE TOLERÂNCIA, em dias de EXPEDIENTE — ver `encerrarSemInteracao`.
+ *
+ * Medido em 03/11/2026 sobre as 51 tarefas do robô já concluídas: 28 no dia
+ * marcado ou antes, 19 em até 5 dias úteis, 1 em 10, 3 em 15 e NENHUMA depois
+ * disso. Vinte é cinco dias de folga sobre o pior caso que já existiu.
+ */
+const TOLERANCIA_DIAS_UTEIS = 20;
 import { normalizarCategoria } from '../processos/areas.catalogo';
 import { PARTE_ORDER } from '../processos/partes.service';
 import {
@@ -723,8 +733,16 @@ export class AgendaService {
       where: { id },
       include: {
         /* A contagem vai junto para a gaveta poder dizer "3 anexos" no TOPO, sem
-           esperar a seção de documentos carregar lá embaixo (21/09/2026). */
-        _count: { select: { anexos: true } },
+           esperar a seção de documentos carregar lá embaixo (21/09/2026).
+
+           `origemMovimentacoes` entrou em 03/11/2026 para a gaveta saber DE QUAL
+           ROBÔ veio a tarefa. Ela decidia pela presença de `origemComunicacoes`:
+           tendo, "Robô de publicações (DJEN)"; não tendo, afirmava "Robô de
+           prazos (DataJud)" — e esse `else` era chute. Mentia nas cinco
+           "Conferir de que lado estamos no processo" que o dono viu na tela:
+           nasceram da comparação entre a ficha e o Diário, sem publicação e sem
+           movimentação, e a gaveta mandava procurar a origem na aba errada. */
+        _count: { select: { anexos: true, origemMovimentacoes: true } },
         // Detalhe expõe mais do filiado (contato) — a tela é de trabalho interno.
         filiado: {
           select: {
@@ -811,6 +829,22 @@ export class AgendaService {
          * o processo, achar a aba Publicações e procurar qual das publicações
          * era aquela. O texto que ele precisa ler para decidir estava a três
          * cliques de distância, ligado no banco e invisível na tela.
+         */
+        /**
+         * DE QUAL ROBÔ VEIO — e "nenhum dos dois" é resposta válida.
+         *
+         * A gaveta decidia pela presença de `origemComunicacoes`: tendo,
+         * dizia "Robô de publicações (DJEN)"; não tendo, afirmava "Robô de
+         * prazos (DataJud)". O `else` era um chute, e em 03/11/2026 ele
+         * mentia em cinco atividades na tela do dono: as "Conferir de que
+         * lado estamos no processo" nasceram da comparação entre a ficha e o
+         * Diário, sem publicação e sem movimentação ligadas, e a gaveta
+         * mandava o advogado procurar a origem na aba do DataJud.
+         *
+         * A contagem vem FORA do recorte de `verProcessos` logo abaixo: saber
+         * que robô criou a tarefa não é dado de processo, é procedência da
+         * própria atividade — e quem não enxerga processos continua vendo a
+         * tarefa na agenda.
          */
         ...(verProcessos
           ? {
@@ -1640,6 +1674,134 @@ export class AgendaService {
    *
    * @returns o id do compromisso cancelado, ou null se não havia o que cancelar.
    */
+  /**
+   * A MARGEM DE TOLERÂNCIA — ninguém tocou, o sistema encerra e DIZ ISSO.
+   *
+   * POR QUE
+   * -------------------------------------------------------------------------
+   * O dono, em 03/11/2026: *"uma atividade que possui prazo, se o advogado
+   * perder esse prazo máximo, a atividade ser cancelada automaticamente e
+   * dizer 'o advogado não interagiu com a atividade e cancelamos por falta de
+   * interação, não sabemos se o prazo foi concluído'"*. Agenda que só cresce
+   * é agenda que ninguém abre — e das 121 atividades que o robô já criou, 54
+   * acabaram canceladas à mão, quase sempre tarde.
+   *
+   * DE ONDE SAIU O CORTE. Das 51 tarefas do robô já CONCLUÍDAS: 28 no dia
+   * marcado ou antes, 19 em até 5 dias úteis, 1 em 10 e 3 em 15. **Nenhuma
+   * passou de 15.** Vinte dias de expediente é cinco de folga sobre o pior
+   * caso real, e são dias de EXPEDIENTE — fim de semana e feriado nacional
+   * não contam (`dias-uteis`), senão o recesso derrubaria a agenda inteira.
+   *
+   * O QUE ELE NUNCA ENCERRA, e cada recusa tem motivo:
+   *
+   *  · AUDIÊNCIA. Tem hora marcada no mundo real; o sistema não desmarca o que
+   *    o juízo marcou. Quem derruba pauta é o tribunal (`cancelarPorSistema`).
+   *  · O QUE ALGUÉM TOCOU — histórico, anexo ou já iniciada. Interação é
+   *    exatamente o que este encerramento diz que não houve.
+   *  · O QUE UMA PESSOA CRIOU. Quem marcou à mão sabe por que marcou; o robô
+   *    não revoga decisão de gente (a mesma regra de `derivado-desfaz-decisao`).
+   *
+   * E NÃO AFIRMA QUE O PRAZO FOI PERDIDO. O sistema nunca calculou vencimento
+   * processual (dia útil forense, feriado da comarca, forma de intimação) e
+   * não vai começar aqui. O que ele sabe dizer é que ninguém mexeu — e que a
+   * providência pode muito bem ter sido cumprida fora do sistema.
+   *
+   * REVERSÍVEL: a atividade some da agenda viva, não da história. Reabrir
+   * devolve tudo, e o motivo fica gravado para quem for conferir.
+   */
+  async encerrarSemInteracao(): Promise<{ encerradas: number; semNinguemEntrar: number }> {
+    const agora = new Date();
+    const candidatas = await this.prisma.compromisso.findMany({
+      where: {
+        status: StatusCompromisso.PENDENTE,
+        origemAutomatica: true,
+        iniciadoEm: null,
+        tipo: { not: 'AUDIENCIA' },
+        // Teto de segurança em dias corridos: o filtro fino é em dias úteis.
+        inicio: { lt: new Date(agora.getTime() - TOLERANCIA_DIAS_UTEIS * 24 * 3_600_000) },
+      },
+      select: {
+        id: true, titulo: true, inicio: true, createdAt: true,
+        responsavel: { select: { nome: true, ultimoLoginEm: true } },
+        historico: { select: { id: true }, take: 1 },
+        anexos: { select: { id: true }, take: 1 },
+      },
+      take: 200,
+    });
+
+    let encerradas = 0;
+    let semNinguemEntrar = 0;
+    for (const c of candidatas) {
+      if (c.historico.length || c.anexos.length) continue;
+      const diasParado = diasUteisEntre(c.inicio, agora);
+      if (diasParado < TOLERANCIA_DIAS_UTEIS) continue;
+
+      /*
+        "NEM ENTROU" MUDA QUEM TEM DE AGIR, e por isso entra na frase.
+
+        Se o responsável sequer abriu o sistema desde que a atividade nasceu, o
+        problema não é dele ter ignorado — é de a tarefa nunca ter sido
+        mostrada a ninguém. Medido em 03/11/2026: as DEZOITO atividades abertas
+        estavam nesse estado, com os advogados entre 17 e 48 dias sem login.
+        Calar isso jogaria no advogado uma falha que é de alcance.
+      */
+      const nemEntrou = !c.responsavel.ultimoLoginEm || c.responsavel.ultimoLoginEm < c.createdAt;
+      if (nemEntrou) semNinguemEntrar++;
+
+      const motivo =
+        `Passaram-se ${diasParado} dias de expediente desde o dia marcado e ninguém abriu, ` +
+        'iniciou ou anotou nada nesta atividade. O sistema a encerrou para a agenda não virar ' +
+        'depósito — e NÃO sabemos se a providência foi cumprida fora dele: o sistema não ' +
+        'calcula prazo processual.' +
+        (nemEntrou
+          ? ` ${c.responsavel.nome.split(' ')[0]} não entrou no sistema desde que ela foi criada.`
+          : '') +
+        ' Se ainda for necessária, reabra.';
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.compromisso.update({
+          where: { id: c.id },
+          data: {
+            status: StatusCompromisso.CANCELADO,
+            canceladoCategoria: 'SEM_INTERACAO',
+            canceladoMotivo: motivo,
+            canceladoEm: agora,
+            canceladoPor: null, // não houve pessoa
+            iniciadoEm: null,
+          },
+        });
+        // Mesma razão de `cancelarPorSistema`: sem dispensar, a movimentação
+        // fica presa a uma tarefa cancelada — sem alerta e sem voltar ao radar.
+        await dispensarMovimentacaoLigada(tx, c.id, motivo);
+      });
+
+      await this.audit.registrar({
+        userId: null,
+        acao: AcaoAuditoria.UPDATE,
+        entidade: 'Compromisso',
+        entidadeId: c.id,
+        descricao: `Compromisso CANCELADO por falta de interação: ${c.titulo}`,
+        metadata: { diasParado, nemEntrou, origem: 'TOLERANCIA' },
+      });
+      await this.historiar(
+        c.id,
+        'CANCELADO',
+        `Encerrada automaticamente — ${motivo}`,
+        { nome: 'Sistema (sem interação)' },
+        { categoria: 'SEM_INTERACAO', origem: 'TOLERANCIA' },
+      );
+      encerradas++;
+    }
+
+    if (encerradas) {
+      this.logger.log(
+        `[AGENDA] ${encerradas} atividade(s) encerrada(s) por falta de interação` +
+          `${semNinguemEntrar ? ` — em ${semNinguemEntrar} delas o responsável nem entrou no sistema` : ''}.`,
+      );
+    }
+    return { encerradas, semNinguemEntrar };
+  }
+
   async cancelarPorSistema(compromissoId: string, motivo: string): Promise<string | null> {
     const atual = await this.prisma.compromisso.findUnique({
       where: { id: compromissoId },

@@ -860,9 +860,22 @@ export function CompromissoDrawer({
               */
               <Bloco titulo="Registrado por">
                 <p className="text-sm text-muted-foreground">
+                  {/*
+                    E "NENHUM DOS DOIS" É RESPOSTA — o `else` era um chute.
+
+                    Tendo publicação ligada é o robô do Diário; tendo
+                    movimentação, o de prazos. Faltando as duas, a tarefa
+                    nasceu de outra conferência do sistema, e afirmar "DataJud"
+                    mandava o advogado procurar a origem na aba errada — o que
+                    aconteceu em 03/11/2026 nas cinco "Conferir de que lado
+                    estamos no processo", que vieram da comparação entre a
+                    ficha e o Diário.
+                  */}
                   {c.origemComunicacoes?.length
                     ? 'Robô de publicações (DJEN)'
-                    : 'Robô de prazos (DataJud)'}
+                    : c._count?.origemMovimentacoes
+                      ? 'Robô de prazos (DataJud)'
+                      : 'Conferência automática do sistema'}
                 </p>
               </Bloco>
             ) : c.criadoPorNome ? (
