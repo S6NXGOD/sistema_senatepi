@@ -1333,6 +1333,7 @@ export class ProcessosService {
           orgaoJulgador: true, tribunal: true, grau: true, dataDistribuicao: true,
           valorCausa: true, statusInterno: true, ultimaSincronizacao: true,
           etiquetas: true, segredoJustica: true, tipoAcao: true,
+          ladoEmDuvidaDesde: true,
           filiado: filiadoSel, advogado: advogadoSel,
           partes: partesResumoSel,
           advogados: { select: { principal: true, advogado: advogadoSel } },

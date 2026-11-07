@@ -273,6 +273,12 @@ export interface DossieProcesso {
   contaPublica?: ContaPublicaDoReu | null;
   id: string;
   numeroCNJ: string;
+  /**
+   * Desde quando o Diário publica o sindicato do OUTRO lado — vira o selo "Lado a
+   * conferir" no cabeçalho. A consulta do dossiê usa `include`, então a coluna
+   * vem sozinha; opcional pela janela de troca do deploy.
+   */
+  ladoEmDuvidaDesde?: string | null;
   classeProcessual: string | null;
   assuntoPrincipal: string | null;
   orgaoJulgador: string | null;

@@ -491,7 +491,7 @@ export const CATEGORIA_CANCELAMENTO_LABEL: Record<string, string> = {
    * de expediente sem ninguém abrir, iniciar ou anotar. Sem o rótulo aqui a
    * gaveta mostraria o código cru — o mesmo defeito de SUBSTITUIDA.
    */
-  SEM_INTERACAO: 'Encerrada por falta de interação',
+  SEM_INTERACAO: 'Cancelada por falta de interação',
 };
 
 /** Opções de desfecho do tipo da atividade. */

@@ -41,6 +41,15 @@ describe('feriados nacionais', () => {
     expect(ehDiaDeExpediente(dia(d))).toBe(false);
   });
 
+  /*
+    Consciência Negra é feriado NACIONAL desde a Lei 14.759/2023. Faltava na
+    lista até 07/11/2026, e em 2026 cai numa sexta-feira.
+  */
+  it('20/11 é Consciência Negra, e não é dia de expediente', () => {
+    expect(ehDiaDeExpediente(new Date('2026-11-20T00:00:00.000Z'))).toBe(false);
+    expect(ehDiaDeExpediente(new Date('2026-11-19T00:00:00.000Z'))).toBe(true);
+  });
+
   it('a Páscoa de outros anos também fecha', () => {
     // 2027: Páscoa em 28/03 → Sexta-feira Santa 26/03, Corpus Christi 27/05.
     expect(ehDiaDeExpediente(dia('2027-03-26'))).toBe(false);

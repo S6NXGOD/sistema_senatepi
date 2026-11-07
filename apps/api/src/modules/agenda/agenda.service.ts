@@ -43,16 +43,9 @@ export const DIAS_ENTRE_AVISOS = 7;
 import { nivelEfetivo } from '../../common/permissions/permissoes.constants';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { ultimosUsosReais } from '../dashboard/ultimo-acesso.util';
-import { diasUteisEntre } from '../dashboard/dias-uteis';
-
-/**
- * A MARGEM DE TOLERÂNCIA, em dias de EXPEDIENTE — ver `encerrarSemInteracao`.
- *
- * Medido em 03/11/2026 sobre as 51 tarefas do robô já concluídas: 28 no dia
- * marcado ou antes, 19 em até 5 dias úteis, 1 em 10, 3 em 15 e NENHUMA depois
- * disso. Vinte é cinco dias de folga sobre o pior caso que já existiu.
- */
-const TOLERANCIA_DIAS_UTEIS = 20;
+import {
+  NUNCA_VENCEM_POR_TEMPO, fraseDaPerda, perdeuOSentido, pontoSemVolta,
+} from './ponto-sem-volta.util';
 import { normalizarCategoria } from '../processos/areas.catalogo';
 import { PARTE_ORDER } from '../processos/partes.service';
 import {
@@ -1661,52 +1654,36 @@ export class AgendaService {
   }
 
   /**
-   * CANCELAMENTO PELO SISTEMA — o tribunal derrubou a pauta.
+   * O QUE PERDEU O PRAZO OU O SENTIDO É CANCELADO, E A AGENDA DIZ POR QUÊ.
    *
-   * Quando o DataJud traz "audiência cancelada" (ou uma redesignação, que é uma
-   * data nova substituindo a antiga), o compromisso criado pela designação
-   * anterior continuava PENDENTE na agenda, com a data velha. O robô só
-   * ignorava a movimentação — e o advogado ia ao fórum.
-   *
-   * Não passa pela rota humana de propósito: não há usuário para atribuir e a
-   * categoria é sempre a mesma (decisão externa). Só toca atividades ABERTAS —
-   * uma audiência já concluída é história, não se cancela.
-   *
-   * @returns o id do compromisso cancelado, ou null se não havia o que cancelar.
-   */
-  /**
-   * A MARGEM DE TOLERÂNCIA — ninguém tocou, o sistema encerra e DIZ ISSO.
-   *
-   * POR QUE
+   * O PEDIDO, EM DUAS VOLTAS
    * -------------------------------------------------------------------------
-   * O dono, em 03/11/2026: *"uma atividade que possui prazo, se o advogado
-   * perder esse prazo máximo, a atividade ser cancelada automaticamente e
-   * dizer 'o advogado não interagiu com a atividade e cancelamos por falta de
-   * interação, não sabemos se o prazo foi concluído'"*. Agenda que só cresce
-   * é agenda que ninguém abre — e das 121 atividades que o robô já criou, 54
-   * acabaram canceladas à mão, quase sempre tarde.
+   * 03/11/2026: *"se o advogado perder esse prazo máximo, a atividade ser
+   * cancelada automaticamente"*. Saiu com um corte de 20 dias de expediente
+   * parada — e a agenda continuou mostrando por um mês o que já não servia.
    *
-   * DE ONDE SAIU O CORTE. Das 51 tarefas do robô já CONCLUÍDAS: 28 no dia
-   * marcado ou antes, 19 em até 5 dias úteis, 1 em 10 e 3 em 15. **Nenhuma
-   * passou de 15.** Vinte dias de expediente é cinco de folga sobre o pior
-   * caso real, e são dias de EXPEDIENTE — fim de semana e feriado nacional
-   * não contam (`dias-uteis`), senão o recesso derrubaria a agenda inteira.
+   * 07/11/2026: *"essas atividades em que foi perdido prazo ou passou do time,
+   * sejam canceladas automaticamente pelo sistema e coloque que foi por falta de
+   * interação do advogado com a atividade e o prazo ou o sentido da atividade
+   * foi perdido"*.
    *
-   * O QUE ELE NUNCA ENCERRA, e cada recusa tem motivo:
+   * O CUIDADO: a data da tarefa do robô é o dia de SENTAR, com folga — não o
+   * prazo. Cancelar quando ela passa apagaria o lembrete com o prazo ainda
+   * aberto. Quando cada atividade perde o sentido mora em `pontoSemVolta`, que
+   * conta o prazo do ato a partir da publicação; aqui só se aplica.
    *
-   *  · AUDIÊNCIA. Tem hora marcada no mundo real; o sistema não desmarca o que
-   *    o juízo marcou. Quem derruba pauta é o tribunal (`cancelarPorSistema`).
-   *  · O QUE ALGUÉM TOCOU — histórico, anexo ou já iniciada. Interação é
-   *    exatamente o que este encerramento diz que não houve.
-   *  · O QUE UMA PESSOA CRIOU. Quem marcou à mão sabe por que marcou; o robô
-   *    não revoga decisão de gente (a mesma regra de `derivado-desfaz-decisao`).
+   * O QUE NUNCA É CANCELADO AQUI, e cada recusa tem motivo:
+   *  · audiência, consulta, reunião e perícia — fatos com hora no mundo; ou
+   *    aconteceram ou não, e "cancelada" afirmaria o que o sistema não sabe;
+   *  · o que alguém tocou (histórico, anexo, iniciada) — houve interação, e a
+   *    frase diria o contrário.
    *
-   * E NÃO AFIRMA QUE O PRAZO FOI PERDIDO. O sistema nunca calculou vencimento
-   * processual (dia útil forense, feriado da comarca, forma de intimação) e
-   * não vai começar aqui. O que ele sabe dizer é que ninguém mexeu — e que a
-   * providência pode muito bem ter sido cumprida fora do sistema.
+   * A TAREFA CRIADA POR GENTE AGORA ENTRA (antes não entrava): o pedido é sobre
+   * "essas atividades", sem distinguir a origem, e o dia marcado por uma pessoa
+   * passa do mesmo jeito. Ela ganha o dia útil seguinte para quem fez e só
+   * registra no outro dia.
    *
-   * REVERSÍVEL: a atividade some da agenda viva, não da história. Reabrir
+   * REVERSÍVEL: a atividade sai da agenda viva, não da história. Reabrir
    * devolve tudo, e o motivo fica gravado para quem for conferir.
    */
   async encerrarSemInteracao(): Promise<{ encerradas: number; semNinguemEntrar: number }> {
@@ -1714,27 +1691,28 @@ export class AgendaService {
     const candidatas = await this.prisma.compromisso.findMany({
       where: {
         status: StatusCompromisso.PENDENTE,
-        origemAutomatica: true,
         iniciadoEm: null,
-        tipo: { not: 'AUDIENCIA' },
-        // Teto de segurança em dias corridos: o filtro fino é em dias úteis.
-        inicio: { lt: new Date(agora.getTime() - TOLERANCIA_DIAS_UTEIS * 24 * 3_600_000) },
+        tipo: { notIn: [...NUNCA_VENCEM_POR_TEMPO] },
+        // O filtro fino é por dia de Teresina, em `perdeuOSentido`.
+        inicio: { lt: agora },
       },
       select: {
-        id: true, titulo: true, inicio: true, createdAt: true,
-        responsavel: { select: { nome: true, ultimoLoginEm: true } },
+        id: true, titulo: true, tipo: true, inicio: true, createdAt: true,
+        responsavel: { select: { nome: true, role: true, ultimoLoginEm: true } },
         historico: { select: { id: true }, take: 1 },
         anexos: { select: { id: true }, take: 1 },
+        origemComunicacoes: { select: { dataDisponibilizacao: true, prazoMencionadoDias: true } },
       },
-      take: 200,
+      orderBy: { inicio: 'asc' },
+      take: 500,
     });
 
     let encerradas = 0;
     let semNinguemEntrar = 0;
     for (const c of candidatas) {
       if (c.historico.length || c.anexos.length) continue;
-      const diasParado = diasUteisEntre(c.inicio, agora);
-      if (diasParado < TOLERANCIA_DIAS_UTEIS) continue;
+      const ponto = pontoSemVolta({ tipo: c.tipo, inicio: c.inicio, publicacoes: c.origemComunicacoes });
+      if (!ponto || !perdeuOSentido(ponto, agora)) continue;
 
       /*
         "NEM ENTROU" MUDA QUEM TEM DE AGIR, e por isso entra na frase.
@@ -1743,20 +1721,10 @@ export class AgendaService {
         problema não é dele ter ignorado — é de a tarefa nunca ter sido
         mostrada a ninguém. Medido em 03/11/2026: as DEZOITO atividades abertas
         estavam nesse estado, com os advogados entre 17 e 48 dias sem login.
-        Calar isso jogaria no advogado uma falha que é de alcance.
       */
       const nemEntrou = !c.responsavel.ultimoLoginEm || c.responsavel.ultimoLoginEm < c.createdAt;
       if (nemEntrou) semNinguemEntrar++;
-
-      const motivo =
-        `Passaram-se ${diasParado} dias de expediente desde o dia marcado e ninguém abriu, ` +
-        'iniciou ou anotou nada nesta atividade. O sistema a encerrou para a agenda não virar ' +
-        'depósito — e NÃO sabemos se a providência foi cumprida fora dele: o sistema não ' +
-        'calcula prazo processual.' +
-        (nemEntrou
-          ? ` ${c.responsavel.nome.split(' ')[0]} não entrou no sistema desde que ela foi criada.`
-          : '') +
-        ' Se ainda for necessária, reabra.';
+      const motivo = fraseDaPerda(ponto, c.responsavel, nemEntrou);
 
       await this.prisma.$transaction(async (tx) => {
         await tx.compromisso.update({
@@ -1781,12 +1749,17 @@ export class AgendaService {
         entidade: 'Compromisso',
         entidadeId: c.id,
         descricao: `Compromisso CANCELADO por falta de interação: ${c.titulo}`,
-        metadata: { diasParado, nemEntrou, origem: 'TOLERANCIA' },
+        metadata: {
+          relogio: ponto.tipo,
+          ultimoDia: ponto.ultimoDia.toISOString().slice(0, 10),
+          nemEntrou,
+          origem: 'TOLERANCIA',
+        },
       });
       await this.historiar(
         c.id,
         'CANCELADO',
-        `Encerrada automaticamente — ${motivo}`,
+        motivo,
         { nome: 'Sistema (sem interação)' },
         { categoria: 'SEM_INTERACAO', origem: 'TOLERANCIA' },
       );
@@ -1795,13 +1768,27 @@ export class AgendaService {
 
     if (encerradas) {
       this.logger.log(
-        `[AGENDA] ${encerradas} atividade(s) encerrada(s) por falta de interação` +
+        `[AGENDA] ${encerradas} atividade(s) cancelada(s) por falta de interação` +
           `${semNinguemEntrar ? ` — em ${semNinguemEntrar} delas o responsável nem entrou no sistema` : ''}.`,
       );
     }
     return { encerradas, semNinguemEntrar };
   }
 
+  /**
+   * CANCELAMENTO PELO SISTEMA — o tribunal derrubou a pauta.
+   *
+   * Quando o DataJud traz "audiência cancelada" (ou uma redesignação, que é uma
+   * data nova substituindo a antiga), o compromisso criado pela designação
+   * anterior continuava PENDENTE na agenda, com a data velha. O robô só
+   * ignorava a movimentação — e o advogado ia ao fórum.
+   *
+   * Não passa pela rota humana de propósito: não há usuário para atribuir e a
+   * categoria é sempre a mesma (decisão externa). Só toca atividades ABERTAS —
+   * uma audiência já concluída é história, não se cancela.
+   *
+   * @returns o id do compromisso cancelado, ou null se não havia o que cancelar.
+   */
   async cancelarPorSistema(compromissoId: string, motivo: string): Promise<string | null> {
     const atual = await this.prisma.compromisso.findUnique({
       where: { id: compromissoId },

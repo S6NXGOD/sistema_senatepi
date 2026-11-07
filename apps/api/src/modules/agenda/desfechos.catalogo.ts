@@ -505,8 +505,8 @@ export const CATEGORIAS_CANCELAMENTO: CategoriaCancelamento[] = [
    */
   {
     slug: 'SEM_INTERACAO',
-    label: 'Encerrada por falta de interação',
-    ajuda: 'Passou do prazo de tolerância sem ninguém abrir, iniciar ou anotar nada.',
+    label: 'Cancelada por falta de interação',
+    ajuda: 'O prazo ou o dia da atividade passou sem ninguém iniciar, anotar ou concluir nada.',
     apenasSistema: true,
   },
 ];

@@ -2527,6 +2527,14 @@ model Processo {
   urgenteEm     DateTime? @map("urgente_em")
   urgentePor    String?   @map("urgente_por")
 
+  /// O DIÁRIO PUBLICA O SINDICATO DO OUTRO LADO — desde quando a varredura viu.
+  ///
+  /// Gravado pela reconciliação da madrugada (e ao abrir a ficha), nunca
+  /// recalculado na lista: a conta lê até 60 publicações por processo. Nulo é
+  /// "concorda" ou "o Diário não diz". Vira o selo "Lado a conferir", que
+  /// substituiu a tarefa da agenda em 07/11/2026.
+  ladoEmDuvidaDesde DateTime? @map("lado_em_duvida_desde")
+
   /// QUEM PEDIU o processo — o filiado que procurou o sindicato.
   ///
   /// NÃO É REDUNDANTE com `filiadoId`, e a diferença aparece justamente nos

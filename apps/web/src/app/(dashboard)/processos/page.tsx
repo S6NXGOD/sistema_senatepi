@@ -21,6 +21,7 @@ import { ImportarLoteDialog } from '@/components/processos/importar-lote-dialog'
 import { ProcessoDetalheSheet } from '@/components/processos/processo-detalhe-sheet';
 import { AjuizarCasoModal } from '@/components/processos/ajuizar-caso-modal';
 import { SeloUrgente } from '@/components/ui/selo-urgente';
+import { SeloLadoAConferir } from '@/components/ui/selo-lado';
 import { SeloPreProcessual } from '@/components/ui/selo-pre-processual';
 import { EquipeAvatares } from '@/components/ui/avatar-pessoa';
 import { FiltroParteContraria } from '@/components/processos/filtro-parte-contraria';
@@ -929,6 +930,10 @@ function ListaProcessos() {
                             className="mb-1"
                           />
                         )}
+                        {/* Na mesma borda do urgente: é ali que o olho procura o que pede alguém. */}
+                        {p.ladoEmDuvidaDesde && (
+                          <SeloLadoAConferir desde={p.ladoEmDuvidaDesde} tamanho="sm" className="mb-1 ml-0.5" />
+                        )}
                         {p.numeroCNJ ? (
                           <span className="block font-mono text-[13px] font-medium">{formatNPU(p.numeroCNJ)}</span>
                         ) : (
@@ -1478,6 +1483,9 @@ function ProcessoCard({ p, onClick }: { p: ProcessoLista; onClick: () => void })
     <Card interativo className="cursor-pointer p-4" onClick={onClick}>
       {p.urgente && (
         <SeloUrgente motivo={p.urgenteMotivo} desde={p.urgenteEm} tamanho="sm" className="mb-1.5" />
+      )}
+      {p.ladoEmDuvidaDesde && (
+        <SeloLadoAConferir desde={p.ladoEmDuvidaDesde} tamanho="sm" className="mb-1.5 ml-0.5" />
       )}
       <div className="flex items-start justify-between gap-2">
         <p className={cn('text-sm font-semibold', p.numeroCNJ && 'font-mono')}>

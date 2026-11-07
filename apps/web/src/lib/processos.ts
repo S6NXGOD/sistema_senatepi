@@ -189,6 +189,12 @@ export interface ProcessoLista {
    * é o que garante que não envelheçam. As de `etiquetas` são as manuais.
    */
   etiquetasAutomaticas?: string[];
+  /**
+   * Desde quando o Diário publica o sindicato do OUTRO lado deste processo —
+   * nulo quando concorda ou não diz. Vira o selo "Lado a conferir". Opcional
+   * pela janela de troca do deploy: a API antiga não manda.
+   */
+  ladoEmDuvidaDesde?: string | null;
   _count: { movimentacoes: number; partes: number; advogados: number };
 }
 
@@ -241,6 +247,8 @@ export const FASE_LABEL: Record<FaseProcessual, string> = {
 export interface ProcessoDetalhe {
   id: string;
   numeroCNJ: string | null;
+  /** Ver `ProcessoLista.ladoEmDuvidaDesde`. */
+  ladoEmDuvidaDesde?: string | null;
   titulo?: string | null;
   classeProcessual: string | null;
   assuntoPrincipal: string | null;

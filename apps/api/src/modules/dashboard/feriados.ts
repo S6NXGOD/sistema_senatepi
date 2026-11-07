@@ -59,6 +59,13 @@ const FIXOS = [
   '10-12', // Nossa Senhora Aparecida
   '11-02', // Finados
   '11-15', // Proclamação da República
+  /*
+    Consciência Negra: feriado NACIONAL desde a Lei 14.759/2023 (vale a partir
+    de 2024). Faltava aqui até 07/11/2026, e em 2026 ele cai numa sexta: a faixa
+    do painel contaria um dia útil sem Diário, e a conta de prazo da agenda
+    encurtaria um dia — o lado em que alguém perde prazo por causa do sistema.
+  */
+  '11-20',
   '12-25', // Natal
 ];
 

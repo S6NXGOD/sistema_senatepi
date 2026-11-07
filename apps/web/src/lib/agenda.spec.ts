@@ -290,7 +290,7 @@ describe('rótulos novos', () => {
  */
 describe('a categoria do encerramento por tolerância', () => {
   it('tem rótulo de gente, e não o código cru', () => {
-    expect(CATEGORIA_CANCELAMENTO_LABEL.SEM_INTERACAO).toBe('Encerrada por falta de interação');
+    expect(CATEGORIA_CANCELAMENTO_LABEL.SEM_INTERACAO).toBe('Cancelada por falta de interação');
   });
 
   it('o catálogo da API e o rótulo do web não divergem', () => {

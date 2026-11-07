@@ -574,7 +574,8 @@ export class PartesDoDiarioService {
   }
 
   async reconciliar(processoId: string): Promise<ResultadoReconciliacao> {
-    const { repor, duvida } = await this.ler(processoId);
+    const { repor, duvida, nossoLado } = await this.ler(processoId);
+    await this.carimbarLado(processoId, !!nossoLado);
     if (!repor.length) return { ...VAZIO, emDuvida: duvida.length };
 
     await this.prisma.$transaction(async (tx) => {
@@ -600,6 +601,27 @@ export class PartesDoDiarioService {
     return { repostas: repor.length, emDuvida: duvida.length, processos: 1 };
   }
 
+  /**
+   * O SELO "LADO A CONFERIR" É O QUE A VARREDURA DECIDIU, GRAVADO (07/11/2026).
+   *
+   * Era uma tarefa "Conferir de que lado estamos no processo" na agenda de cada
+   * advogado, e o dono pediu um selo no próprio processo: *"estão poluindo
+   * demais, acho melhor deixar só uma badge em cima do processo"*. A agenda é de
+   * compromisso; esta é uma informação do processo.
+   *
+   * GRAVADO, E NÃO RECALCULADO NA LISTA: a conta lê até 60 publicações por
+   * processo, e uma página de 25 linhas viraria 25 leituras dessas. Só escreve
+   * quando muda, para a data dizer DESDE QUANDO a divergência existe.
+   */
+  private async carimbarLado(processoId: string, emDuvida: boolean): Promise<void> {
+    await this.prisma.processo.updateMany({
+      where: emDuvida
+        ? { id: processoId, ladoEmDuvidaDesde: null }
+        : { id: processoId, ladoEmDuvidaDesde: { not: null } },
+      data: { ladoEmDuvidaDesde: emDuvida ? new Date() : null },
+    });
+  }
+
   /** O que o ato nomeia e o sistema não soube posicionar — para a ficha mostrar. */
   async emDuvida(processoId: string): Promise<ParteEmDuvida[]> {
     return (await this.ler(processoId)).duvida;
@@ -623,6 +645,11 @@ export class PartesDoDiarioService {
    */
   async nossoLado(processoId: string): Promise<ProvaDoNossoLado | null> {
     const { nossoLado } = await this.ler(processoId);
+    /*
+      Quem corrige as partes vê a ficha logo em seguida, e o selo da lista não
+      pode esperar a madrugada para sumir: a mesma leitura atualiza o carimbo.
+    */
+    await this.carimbarLado(processoId, !!nossoLado);
     if (!nossoLado) return null;
 
     /*

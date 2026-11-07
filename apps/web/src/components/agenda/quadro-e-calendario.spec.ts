@@ -131,7 +131,8 @@ describe('o calendário', () => {
    * — a pessoa procura o ponto roxo e não acha.
    */
   it('a legenda mostra só os tipos presentes', () => {
-    expect(CALENDARIO).toContain('const tiposPresentes = [...new Set(compromissos.map((c) => c.tipo))]');
+    // Cancelada não ocupa a grade (07/11/2026), então também não entra na legenda.
+    expect(CALENDARIO).toContain('const tiposPresentes = [...new Set(visiveis.map((c) => c.tipo))]');
     expect(CALENDARIO).toContain('{tiposPresentes.length > 0 && (');
   });
 });

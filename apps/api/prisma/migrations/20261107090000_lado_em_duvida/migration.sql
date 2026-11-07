@@ -1,0 +1,11 @@
+-- O Diário publica este processo com o sindicato do OUTRO lado (07/11/2026).
+--
+-- Era uma TAREFA "Conferir de que lado estamos no processo" na agenda de cada
+-- advogado, e o dono pediu que virasse um selo no próprio processo: a agenda é
+-- de compromisso, e esta informação é do processo. A varredura da madrugada já
+-- calcula a divergência (`PartesDoDiarioService.reconciliar`); faltava gravar
+-- o que ela decide, para a lista mostrar sem recalcular 60 publicações por linha.
+--
+-- Aditiva e idempotente: na janela de troca do deploy o container ANTIGO atende
+-- contra o banco já migrado, e uma coluna nova que ele ignora não o derruba.
+ALTER TABLE "processos" ADD COLUMN IF NOT EXISTS "lado_em_duvida_desde" TIMESTAMP(3);

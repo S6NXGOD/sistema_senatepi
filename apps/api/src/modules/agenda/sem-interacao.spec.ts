@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CATEGORIAS_CANCELAMENTO } from './desfechos.catalogo';
-import { diasUteisEntre } from '../dashboard/dias-uteis';
 
 const SERVICO = readFileSync(join(__dirname, 'agenda.service.ts'), 'utf8');
 const FN = SERVICO.slice(
@@ -10,68 +9,54 @@ const FN = SERVICO.slice(
 );
 
 /**
- * A MARGEM DE TOLERÂNCIA — o pedido do dono em 03/11/2026.
+ * O CANCELAMENTO POR FALTA DE INTERAÇÃO — o pedido do dono, em duas voltas.
  *
- * *"Uma atividade que possui prazo, se o advogado perder esse prazo máximo, a
- * atividade ser cancelada automaticamente e dizer que não interagiu."*
+ * 03/11/2026: cancelar quando o advogado perder o prazo. Saiu com 20 dias de
+ * expediente parada, e a agenda seguiu mostrando por um mês o que não servia.
  *
- * O corte saiu da própria base: das 51 tarefas do robô já concluídas, 28
- * fecharam no dia marcado ou antes, 19 em até 5 dias úteis, 1 em 10 e 3 em 15.
- * NENHUMA passou de 15. Vinte é a folga sobre o pior caso que já existiu.
+ * 07/11/2026: *"essas atividades em que foi perdido prazo ou passou do time,
+ * sejam canceladas automaticamente pelo sistema"*.
+ *
+ * QUANDO cada atividade perde o sentido está em `ponto-sem-volta.util.spec.ts`,
+ * com datas de verdade. Aqui fica o que o serviço precisa respeitar ao aplicar.
  */
-describe('encerrar por falta de interação', () => {
-  it('o corte é de 20 dias de EXPEDIENTE, não de calendário', () => {
-    expect(SERVICO).toContain('const TOLERANCIA_DIAS_UTEIS = 20;');
-    expect(FN).toContain('diasUteisEntre(c.inicio, agora)');
-    expect(FN).toContain('if (diasParado < TOLERANCIA_DIAS_UTEIS) continue;');
+describe('o serviço aplica a régua, não uma conta própria', () => {
+  it('decide por `pontoSemVolta`, que conta o prazo do ato a partir da publicação', () => {
+    expect(FN).toContain('const ponto = pontoSemVolta({ tipo: c.tipo, inicio: c.inicio, publicacoes: c.origemComunicacoes });');
+    expect(FN).toContain('if (!ponto || !perdeuOSentido(ponto, agora)) continue;');
+    // Sem a publicação, a régua cairia no dia marcado — que NÃO é o prazo.
+    expect(FN).toContain('origemComunicacoes: { select: { dataDisponibilizacao: true, prazoMencionadoDias: true } }');
   });
 
-  /*
-    AS TRÊS RECUSAS. Cada uma custou um raciocínio e nenhuma é decoração:
-    audiência tem hora no mundo real, interação é justamente o que o
-    encerramento nega, e tarefa de gente não é revogada por robô.
-  */
-  it('nunca encerra audiência', () => {
-    expect(FN).toContain("tipo: { not: 'AUDIENCIA' }");
+  it('a régua antiga, de 20 dias parada, saiu', () => {
+    expect(SERVICO).not.toContain('TOLERANCIA_DIAS_UTEIS');
+    expect(FN).not.toContain('diasUteisEntre');
   });
 
-  it('nunca encerra o que alguém tocou', () => {
+  /* O que é fato com hora no mundo nunca vence por tempo: o banco nem devolve. */
+  it('nunca toca audiência, consulta, reunião ou perícia', () => {
+    expect(FN).toContain('tipo: { notIn: [...NUNCA_VENCEM_POR_TEMPO] }');
+  });
+
+  it('nunca cancela o que alguém tocou — interação é o que a frase nega', () => {
     expect(FN).toContain('iniciadoEm: null');
     expect(FN).toContain('if (c.historico.length || c.anexos.length) continue;');
   });
 
-  it('nunca encerra atividade criada por uma pessoa', () => {
-    expect(FN).toContain('origemAutomatica: true');
+  /** O pedido é sobre "essas atividades", sem distinguir quem criou. */
+  it('a tarefa criada por gente também entra', () => {
+    expect(FN).not.toContain('origemAutomatica: true');
   });
 
-  /** E só o que está PENDENTE: em andamento é alguém cuidando. */
-  it('só toca o que está pendente', () => {
+  it('só toca o que está pendente: em andamento é alguém cuidando', () => {
     expect(FN).toContain('status: StatusCompromisso.PENDENTE');
   });
 
-  /**
-   * O SISTEMA NÃO AFIRMA QUE O PRAZO FOI PERDIDO.
-   *
-   * Ele nunca calculou vencimento processual e não começa aqui. O que sabe
-   * dizer é que ninguém mexeu — e que a providência pode ter sido cumprida
-   * fora dele.
-   */
-  it('a frase diz o que o sistema NÃO sabe', () => {
-    expect(FN).toContain('ninguém abriu');
-    expect(FN).toContain('NÃO sabemos se a providência foi cumprida fora dele');
-    expect(FN).toContain('não ');
-    expect(FN).toContain('calcula prazo processual');
-    expect(FN).toContain('reabra');
-  });
-
-  /*
-    "NEM ENTROU" MUDA DE QUEM É A FALHA. Medido em 03/11/2026: as 18 atividades
-    abertas tinham responsável sem login desde antes de a tarefa nascer — de 17
-    a 48 dias. Calar isso jogaria no advogado um problema de alcance.
-  */
-  it('diz quando o responsável sequer entrou no sistema', () => {
+  it('a frase sai de `fraseDaPerda`, com quem e se a pessoa nem entrou', () => {
+    expect(FN).toContain('const motivo = fraseDaPerda(ponto, c.responsavel, nemEntrou);');
     expect(FN).toContain('c.responsavel.ultimoLoginEm < c.createdAt');
-    expect(FN).toContain('não entrou no sistema desde que ela foi criada');
+    // O papel decide entre "do advogado" e "de quem era responsável".
+    expect(FN).toContain('responsavel: { select: { nome: true, role: true, ultimoLoginEm: true } }');
   });
 
   it('grava a categoria própria, sem autor humano', () => {
@@ -90,31 +75,29 @@ describe('encerrar por falta de interação', () => {
   });
 });
 
+/**
+ * A DOC DE `cancelarPorSistema` VOLTOU PARA O LUGAR DELA.
+ *
+ * Em 03/11/2026 o método novo entrou entre a documentação de `cancelarPorSistema`
+ * e o próprio método, e ela passou a descrever o vizinho errado.
+ */
+it('cada método fica com a própria documentação', () => {
+  const doc = SERVICO.indexOf('CANCELAMENTO PELO SISTEMA — o tribunal derrubou a pauta.');
+  const metodo = SERVICO.indexOf('async cancelarPorSistema(');
+  expect(doc).toBeGreaterThan(SERVICO.indexOf('async encerrarSemInteracao('));
+  expect(metodo - doc).toBeLessThan(1200);
+});
+
 describe('a categoria no catálogo', () => {
   const cat = CATEGORIAS_CANCELAMENTO.find((c) => c.slug === 'SEM_INTERACAO');
 
-  it('existe e tem rótulo de gente', () => {
+  it('existe e tem o rótulo nas palavras do pedido', () => {
     expect(cat).toBeDefined();
-    expect(cat!.label).toBe('Encerrada por falta de interação');
+    expect(cat!.label).toBe('Cancelada por falta de interação');
   });
 
   /* Ninguém cancela algo "porque não mexeu nela": é constatação, não escolha. */
   it('não é oferecida a uma pessoa no formulário', () => {
     expect(cat!.apenasSistema).toBe(true);
-  });
-});
-
-/**
- * O CORTE EM DIAS ÚTEIS É O QUE IMPEDE O RECESSO DE DERRUBAR A AGENDA.
- *
- * Vinte dias corridos cairiam dentro de um Natal; vinte de expediente, não.
- */
-describe('o corte respeita expediente', () => {
-  it('vinte dias úteis atravessam mais de um mês de calendário', () => {
-    const inicio = new Date('2026-12-01T12:00:00Z');
-    const vinteUteisDepois = new Date('2027-01-05T12:00:00Z');
-    // Dezembro tem Natal e janeiro tem o dia 1º; a conta pula os dois.
-    expect(diasUteisEntre(inicio, vinteUteisDepois)).toBeLessThan(25);
-    expect(diasUteisEntre(inicio, vinteUteisDepois)).toBeGreaterThanOrEqual(20);
   });
 });

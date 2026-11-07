@@ -62,6 +62,7 @@ import { LinhaDeCobertura } from './linha-de-cobertura';
 import { baixarPdf } from '@/lib/pdf';
 import { classesCor } from '@/lib/paleta-cores';
 import { tenant } from '@/tenant.config';
+import { SeloLadoAConferir } from '@/components/ui/selo-lado';
 import { V } from '@/lib/vocabulario';
 import { chaveLocal } from '@/lib/armazenamento';
 
@@ -813,6 +814,13 @@ export function ProcessoDetalheSheet({
                 <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
                   Nº {p ? formatNPU(p.numeroCNJ) : '—'}
                 </p>
+                {/*
+                  FORA da fileira de selos de cima, que some no celular: este pede
+                  uma ação, e é no celular que menos se abre a aba Partes à toa.
+                */}
+                {p?.ladoEmDuvidaDesde && (
+                  <SeloLadoAConferir desde={p.ladoEmDuvidaDesde} onClick={() => setAba('partes')} className="mt-1.5" />
+                )}
 
                 {/* CONFRONTO — "quem processou quem" na primeira olhada, sem
                     precisar abrir a aba Partes. Sem réu cadastrado, vira o
