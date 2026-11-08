@@ -148,7 +148,7 @@ export function CaixaDePropostas() {
   */
   if (q.isError) {
     return (
-      <Card className="flex flex-col gap-2 border-amber-300 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between dark:border-amber-900/60">
+      <Card data-aviso="atencao" className="flex flex-col gap-2 border-amber-300 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between dark:border-amber-900/60">
         <span className="flex items-start gap-2 text-amber-900 dark:text-amber-200">
           <Inbox className="mt-0.5 h-4 w-4 shrink-0" />
           Não foi possível carregar as publicações que esperam decisão.
@@ -181,8 +181,8 @@ export function CaixaDePropostas() {
   const paradas = itens.filter((i) => estadoOu(i.estado) !== 'NOVA').length;
 
   return (
-    <Card className="overflow-hidden border-sky-200 dark:border-sky-900/50">
-      <div className="flex items-start gap-3 border-b border-sky-100 bg-sky-50/60 px-4 py-3 dark:border-sky-900/40 dark:bg-sky-950/20">
+    <Card data-aviso="atencao" className="overflow-hidden border-sky-200 dark:border-sky-900/50">
+      <div className="flex items-start gap-3 border-b px-4 py-3">
         <Inbox className="mt-0.5 h-4 w-4 shrink-0 text-sky-700 dark:text-sky-400" />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold">
@@ -219,7 +219,7 @@ export function CaixaDePropostas() {
         </div>
       </div>
 
-      <ul className="divide-y divide-sky-100 dark:divide-sky-900/30">
+      <ul className="divide-y">
         {mostradas.map((p) => (
           <LinhaDaProposta
             key={p.id}

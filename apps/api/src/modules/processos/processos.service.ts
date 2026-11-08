@@ -44,6 +44,7 @@ import { NpuUtils } from './utils/npu.util';
 import { montarUrgencia } from '../agenda/equipe.util';
 import { normalizarCategoria, AREA_LABEL } from './areas.catalogo';
 import { areaSugerida, areaSugeridaValida } from './utils/area-sugerida.util';
+import { FRASE_DO_POLO_QUE_FALTA, poloQueFalta, poloQueFaltaNasPartes } from './utils/polos-do-cadastro.util';
 
 import { tenant } from '../../tenant/tenant.config';
 
@@ -339,6 +340,14 @@ export class ProcessosService {
     if (numero.length !== 20) {
       throw new BadRequestException('NPU inválido — informe os 20 dígitos do número único (CNJ).');
     }
+    /*
+      OS DOIS POLOS ANTES DE QUALQUER OUTRA COISA (07/11/2026) — antes até de
+      perguntar ao CNJ, que tem cota: recusar depois de gastar uma consulta de
+      20 a 60 segundos seria fazer a pessoa esperar para ouvir o que já se sabia.
+      Ver `polos-do-cadastro.util`.
+    */
+    const falta = poloQueFalta(dto);
+    if (falta) throw new BadRequestException(FRASE_DO_POLO_QUE_FALTA[falta]);
 
     // (a) Já existe localmente? → conflito.
     const existente = await this.prisma.processo.findUnique({
@@ -1690,6 +1699,23 @@ export class ProcessosService {
     if (!atual) throw new NotFoundException('Processo não encontrado.');
     if (!PRE_PROCESSUAIS.includes(atual.statusInterno)) {
       throw new BadRequestException('Este processo já está formalizado.');
+    }
+    /*
+      AJUIZAR É O MOMENTO EM QUE O CASO VIRA PROCESSO — e nenhum processo entra
+      sem os dois polos (07/11/2026). O caso pré-processual pode nascer pela
+      metade, de uma consulta em que ainda não se sabe contra quem; o processo
+      ajuizado, não. As partes já estão gravadas, então se conta o que existe.
+    */
+    const polos = await this.prisma.parteProcesso.findMany({
+      where: { processoId: id },
+      select: { polo: true },
+    });
+    const faltaNoCaso = poloQueFaltaNasPartes(polos.map((x) => x.polo));
+    if (faltaNoCaso) {
+      throw new BadRequestException(
+        `${FRASE_DO_POLO_QUE_FALTA[faltaNoCaso].replace('para cadastrar o processo', 'para ajuizar')} ` +
+          'As partes ficam na aba Partes do caso.',
+      );
     }
 
     const numero = (dto.numeroCNJ || '').replace(/\D/g, '');

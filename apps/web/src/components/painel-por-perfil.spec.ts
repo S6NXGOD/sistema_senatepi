@@ -94,7 +94,7 @@ describe('saúde das integrações', () => {
    */
   it('o alerta aceita existir sem link', () => {
     expect(PAINEL).toContain('href?: string;');
-    expect(PAINEL).toContain('  ) : (\n    <div className={classe}>{corpo}</div>');
+    expect(PAINEL).toContain('  ) : (\n    <div data-aviso={tom} className={classe}>{corpo}</div>');
   });
 });
 

@@ -102,13 +102,24 @@ describe('o painel não gasta cartão para dizer "nada aqui"', () => {
  * frente, o que havia de real começava abaixo da primeira dobra.
  */
 describe('a ordem das zonas do painel', () => {
-  it('o que precisa de você vem antes dos números', () => {
-    const acoes = CONTEUDO.indexOf('<AcoesSemCadastro');
-    const publicacoes = CONTEUDO.indexOf('<PublicacoesDjen');
-    const kpis = CONTEUDO.indexOf('{!ehTriagem && gradeDeNumeros}');
-    expect(acoes).toBeGreaterThan(-1);
-    expect(acoes).toBeLessThan(kpis);
-    expect(publicacoes).toBeLessThan(kpis);
+  /*
+    OS NÚMEROS DA CASA VÊM ANTES DE TUDO — e isto inverte a regra de 09/09
+    ("trabalho antes de número"), com o dono decidindo em 07/11/2026: "esses
+    contadores devem ser a primeira coisa da dashboard, antes de tudo". O que
+    pede alguém continua logo abaixo, num quadro só.
+  */
+  it('na gestão, os números vêm antes do quadro de avisos', () => {
+    const numeros = CONTEUDO.indexOf('{!ehTriagem && gradeDeNumeros}');
+    const quadro = CONTEUDO.indexOf('<PainelDeAvisos>');
+    expect(numeros).toBeGreaterThan(-1);
+    expect(numeros).toBeLessThan(quadro);
+    expect(numeros).toBeLessThan(CONTEUDO.indexOf('<AcoesSemCadastro'));
+    expect(numeros).toBeLessThan(CONTEUDO.indexOf('<PublicacoesDjen'));
+  });
+
+  it('e os atalhos vêm depois dos números, não antes', () => {
+    expect(CONTEUDO.indexOf('{!ehTriagem && gradeDeNumeros}')).toBeLessThan(CONTEUDO.indexOf('{!ehTriagem && atalhos}'));
+    expect(CONTEUDO.indexOf('{ehTriagem && gradeDeNumeros &&')).toBeLessThan(CONTEUDO.indexOf('{ehTriagem && atalhos}'));
   });
 
   /**
@@ -139,12 +150,17 @@ describe('a ordem das zonas do painel', () => {
     expect(numerosDela).toBeLessThan(fila);
   });
 
-  /** E para a gestão eles seguem depois do que precisa de gente. */
-  it('na gestão os números continuam depois do trabalho', () => {
-    const acoes = CONTEUDO.indexOf('<AcoesSemCadastro');
-    const numeros = CONTEUDO.indexOf('{!ehTriagem && gradeDeNumeros}');
-    expect(numeros).toBeGreaterThan(-1);
-    expect(acoes).toBeLessThan(numeros);
+  /** Todo aviso da zona 1 mora dentro do mesmo quadro — nenhum solto em cima ou embaixo. */
+  it('o quadro de avisos envolve todos os avisos', () => {
+    const abre = CONTEUDO.indexOf('<PainelDeAvisos>');
+    const fecha = CONTEUDO.indexOf('</PainelDeAvisos>');
+    for (const aviso of [
+      '<SaudeDasIntegracoes', '<CaixaDePropostas', '<AcoesSemCadastro', '<AvisoRobo',
+      '<PublicacoesDjen', '<AudienciasAgendarPanel', '<AtividadesParadas',
+    ]) {
+      const i = CONTEUDO.indexOf(aviso);
+      expect([aviso, i > abre && i < fecha]).toEqual([aviso, true]);
+    }
   });
 
   /**

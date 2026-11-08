@@ -57,6 +57,8 @@ import {
 } from '@/components/dashboard/widgets';
 import { AudienciasAgendarPanel } from '@/components/processos/audiencias-agendar-panel';
 import { AtalhosDoPerfil } from '@/components/dashboard/atalhos-do-perfil';
+import { PainelDeAvisos } from '@/components/dashboard/painel-de-avisos';
+import { causaDaParada } from '@/lib/causa-da-parada';
 import { cn } from '@/lib/utils';
 import { tenant } from '@/tenant.config';
 import { AcoesSemCadastro } from '@/components/dashboard/acoes-sem-cadastro';
@@ -140,7 +142,6 @@ export default function DashboardPage() {
         sabe o que vai fazer — e passava por menu, tela e botão para chegar lá.
         Cada perfil vê no máximo quatro, filtrados pela permissão REAL.
       */}
-      <AtalhosDoPerfil role={role} permissoes={perms} />
 
       {/* ORDEM IMPORTA: o erro vem ANTES do esqueleto.
           A condição antiga era `isLoading || !data`, e ela mentia quando a
@@ -148,12 +149,30 @@ export default function DashboardPage() {
           indefinido — então a tela ficava em esqueleto para sempre, sem dizer
           que algo deu errado. Era o "carregando infinito" relatado no celular e
           no computador. */}
+      {/*
+        OS NÚMEROS VÊM ANTES DE TUDO, inclusive dos atalhos (07/11/2026). O dono:
+        "a parte de processos, quantidades de filiados, esses contadores devem
+        ser a primeira coisa da dashboard". Os atalhos continuam a um toque,
+        logo abaixo deles — e é o `Conteudo` quem os posiciona, porque o lugar
+        dos números muda conforme o perfil.
+      */}
       {isError ? (
-        <PainelIndisponivel erro={error} onTentar={() => refetch()} tentando={isFetching} />
+        <>
+          <PainelIndisponivel erro={error} onTentar={() => refetch()} tentando={isFetching} />
+          <AtalhosDoPerfil role={role} permissoes={perms} />
+        </>
       ) : isLoading || !data ? (
-        <SkeletonHome pode={pode} role={role} />
+        <>
+          <SkeletonHome pode={pode} role={role} />
+          <AtalhosDoPerfil role={role} permissoes={perms} />
+        </>
       ) : (
-        <Conteudo data={data} pode={pode} role={role} />
+        <Conteudo
+          data={data}
+          pode={pode}
+          role={role}
+          atalhos={<AtalhosDoPerfil role={role} permissoes={perms} />}
+        />
       )}
     </div>
   );
@@ -306,6 +325,7 @@ function Conteudo({
   data,
   pode,
   role,
+  atalhos,
 }: {
   data: ResumoDashboard;
   pode: Record<
@@ -314,6 +334,8 @@ function Conteudo({
     boolean
   >;
   role: PerfilUsuario;
+  /** Os atalhos do perfil — logo depois dos números, que vêm primeiro. */
+  atalhos?: React.ReactNode;
 }) {
   const { kpis, minhaCarteira, alertas } = data;
   /* Enquanto houver aniversariante sem decisão, o cartão pede alguém e divide a
@@ -558,6 +580,20 @@ function Conteudo({
       {minhaCarteira && (
         <LinhaDaCarteira carteira={minhaCarteira} prazosNaSemana={kpis.prazosSemana ?? 0} />
       )}
+      {/*
+        OS NÚMEROS DA CASA NO TOPO (07/11/2026) — e isto inverte uma decisão de
+        09/09, com o dono decidindo. A regra era "trabalho antes de número": o
+        que pede alguém vinha primeiro e os contadores desciam. O pedido agora é
+        explícito: "esses contadores devem ser a primeira coisa da dashboard,
+        antes de tudo". O que pede alguém continua logo abaixo — num quadro só,
+        e não mais em cinco caixas empilhadas entre a saudação e o primeiro
+        número, que era o que fazia a tela parecer poluída.
+
+        Para quem tem carteira pessoal, os números dela já são a linha acima;
+        para a Triagem, vêm no balcão. Os atalhos seguem os números de cada um.
+      */}
+      {!ehTriagem && gradeDeNumeros}
+      {!ehTriagem && atalhos}
 
       {escopoPessoal && pode.agenda && !vazio.atividadesHoje && (
         <AtividadesDoDia
@@ -610,6 +646,7 @@ function Conteudo({
           {ehTriagem && gradeDeNumeros && <div className="mt-3">{gradeDeNumeros}</div>}
         </section>
       )}
+      {ehTriagem && atalhos}
 
 
       {/*
@@ -642,6 +679,7 @@ function Conteudo({
         tranquilo a zona inteira desaparece e os números sobem naturalmente para
         o topo, que é onde eles devem estar QUANDO não há trabalho urgente.
       */}
+      <PainelDeAvisos>
       {/* A fonte externa caiu? Vem antes de tudo que depende dela — inclusive
           antes do aviso do robô, que só diz se a varredura rodou. */}
       <SaudeDasIntegracoes
@@ -749,18 +787,15 @@ function Conteudo({
         `agenda: VISUALIZAR` — ver que o jurídico está devendo sem poder tocar.
       */}
       {pode.agenda && !ehTriagem && alertas.semMovimentacao > 0 && (
-        <div className="space-y-2">
-          {/* Passou de vermelho sólido para info, e ganhou o número.
-              "Atenção!" com fundo vermelho para uma atividade parada há uma
-              semana competia visualmente com falha de sistema — e a frase
-              seguinte ("manter atualizado é essencial para a qualidade do
-              atendimento") repreendia sem informar. O que a pessoa precisa
-              saber é QUANTAS são e onde estão. */}
-          {alertas.semMovimentacao > 0 && (
-            <AtividadesParadas total={alertas.semMovimentacao} itens={alertas.paradas ?? []} />
-          )}
-        </div>
+        /* Passou de vermelho sólido para info, e ganhou o número.
+           "Atenção!" com fundo vermelho para uma atividade parada há uma
+           semana competia visualmente com falha de sistema — e a frase
+           seguinte ("manter atualizado é essencial para a qualidade do
+           atendimento") repreendia sem informar. O que a pessoa precisa
+           saber é QUANTAS são e onde estão. */
+        <AtividadesParadas total={alertas.semMovimentacao} itens={alertas.paradas ?? []} />
       )}
+      </PainelDeAvisos>
 
 
       {/*
@@ -828,8 +863,7 @@ function Conteudo({
         </section>
       )}
 
-      {/* ZONA 2 — os números. Para a Triagem eles já saíram lá em cima. */}
-      {!ehTriagem && gradeDeNumeros}
+      {/* ZONA 2 — os números subiram para o topo em 07/11/2026; ver acima. */}
 
 
 
@@ -1169,7 +1203,7 @@ function AlertBar({
   */
   if (tom === 'info' && !aoAgir) {
     return (
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-1 text-xs text-muted-foreground">
+      <div data-aviso="info" className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-4 py-2.5 text-xs text-muted-foreground">
         <span className="flex items-start gap-1.5">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
           <span className="min-w-0">{children}</span>
@@ -1207,7 +1241,7 @@ function AlertBar({
   // botão desce para baixo do texto em vez de espremer a frase.
   if (aoAgir) {
     return (
-      <div className={cn('rounded-xl border px-4 py-3 text-sm', estilo.cor)}>
+      <div data-aviso={tom} className={cn('rounded-xl border px-4 py-3 text-sm', estilo.cor)}>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <span className="flex items-start gap-2.5">
             <Icone className={cn('mt-0.5 h-4 w-4 shrink-0', estilo.icone)} />
@@ -1232,9 +1266,9 @@ function AlertBar({
   }
 
   return href ? (
-    <Link href={href} className={classe}>{corpo}</Link>
+    <Link href={href} data-aviso={tom} className={classe}>{corpo}</Link>
   ) : (
-    <div className={classe}>{corpo}</div>
+    <div data-aviso={tom} className={classe}>{corpo}</div>
   );
 }
 
@@ -1337,7 +1371,7 @@ function PublicacoesDjen({
   if (!djen.recentes.length) return null;
 
   return (
-    <Card>
+    <Card data-aviso="atencao">
       <CardContent className="p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
           <p className="flex items-center gap-2 text-sm font-semibold">
@@ -1452,10 +1486,10 @@ function AvisoRobo({ robo, resumido }: { robo: ResumoDashboard['robo']; resumido
   if (situacao === 'SEM_OBJETO' || situacao === 'EM_DIA') {
     if (!falhasBar && !desconhecidosBar) return null;
     return (
-      <div className="space-y-2">
+      <>
         {falhasBar}
         {desconhecidosBar}
-      </div>
+      </>
     );
   }
 
@@ -1490,11 +1524,11 @@ function AvisoRobo({ robo, resumido }: { robo: ResumoDashboard['robo']; resumido
     );
 
   return (
-    <div className="space-y-2">
+    <>
       {aviso}
       {falhasBar}
       {desconhecidosBar}
-    </div>
+    </>
   );
 }
 
@@ -1559,7 +1593,7 @@ function DesconhecidosNoCnj({
   const nNovos = aindaNoPrazo.length + escondidos;
 
   return (
-    <div className="rounded-xl border border-input bg-muted/40 text-sm text-muted-foreground">
+    <div data-aviso="info" className="rounded-xl border border-input bg-muted/40 text-sm text-muted-foreground">
       <button
         type="button"
         onClick={() => setAberto((v) => !v)}
@@ -1852,6 +1886,7 @@ function FalhasCNJ({
 
   return (
     <div
+      data-aviso={soTropeco ? 'info' : 'atencao'}
       className={cn(
         'rounded-xl border text-sm',
         soTropeco
@@ -2853,7 +2888,7 @@ function SaudeDasIntegracoes({
                 {quando ? ` desde ${quando}` : ''}.{' '}
                 {naoRodou
                   ? 'A busca automática, que roda toda madrugada, não executou.'
-                  : `O ${fonte.nome} não respondeu às últimas tentativas.`}
+                  : (causaDaParada(i.fonte, i.ultimoErro) ?? `O ${fonte.nome} não respondeu às últimas tentativas.`)}
                 {/*
                   E O QUE SE PERDEU DISSO — a pergunta que a faixa não respondia.
 
@@ -4031,6 +4066,7 @@ function AtividadesParadas({
     return (
       <Link
         href={`/agenda?compromisso=${a.id}`}
+        data-aviso="info"
         className={cn(casca, 'flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-muted')}
       >
         <span className="flex min-w-0 items-center gap-2.5">
@@ -4049,7 +4085,7 @@ function AtividadesParadas({
   }
 
   return (
-    <div className={casca}>
+    <div data-aviso="info" className={casca}>
       <button
         type="button"
         onClick={() => setAberto((v) => !v)}

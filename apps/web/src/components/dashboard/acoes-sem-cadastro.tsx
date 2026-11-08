@@ -155,7 +155,7 @@ export function AcoesSemCadastro() {
   */
   if (permitido && isError) {
     return (
-      <Card className="flex flex-col gap-2 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+      <Card data-aviso="atencao" className="flex flex-col gap-2 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
         <span className="flex items-start gap-2 text-muted-foreground">
           <Radar className="mt-0.5 h-4 w-4 shrink-0" />
           Não foi possível carregar as ações do Diário que ainda não estão no acervo.
@@ -180,8 +180,8 @@ export function AcoesSemCadastro() {
   const sobra = fila.length - mostradas.length;
 
   return (
-    <Card className="overflow-hidden border-indigo-200 dark:border-indigo-900/50">
-      <div className="flex items-start gap-3 border-b border-indigo-100 bg-indigo-50/60 px-4 py-3 dark:border-indigo-900/40 dark:bg-indigo-950/20">
+    <Card data-aviso="atencao" className="overflow-hidden border-indigo-200 dark:border-indigo-900/50">
+      <div className="flex items-start gap-3 border-b px-4 py-3">
         <Radar className="mt-0.5 h-4 w-4 shrink-0 text-indigo-700 dark:text-indigo-400" />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold">
@@ -196,7 +196,7 @@ export function AcoesSemCadastro() {
         </div>
       </div>
 
-      <ul className="divide-y divide-indigo-100 dark:divide-indigo-900/30">
+      <ul className="divide-y">
         {mostradas.map((s) => {
           const chip = POLO_CHIP[s.nossoPolo];
           const oQueE = descreverAcao(s);

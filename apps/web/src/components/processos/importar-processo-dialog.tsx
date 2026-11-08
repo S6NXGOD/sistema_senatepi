@@ -845,6 +845,22 @@ export function ImportarProcessoDialog({
    * sabendo — e é diferente de descobrir depois numa fila de 29.
    */
   const poloVazio = poloAtivo.length === 0;
+  /*
+    OS DOIS POLOS SÃO OBRIGATÓRIOS (07/11/2026) — pedido do dono: "para que não
+    entre ações sem seus devidos polos". Na produção, 28 dos 212 processos
+    estavam sem polo passivo. A API recusa também (`polos-do-cadastro.util`):
+    aqui é só para a pessoa saber ANTES, e no lugar exato do que falta.
+
+    O aviso aparece depois da primeira tentativa, e não ao abrir: um formulário
+    que já nasce gritando "obrigatório" em vermelho trata como erro o que é só
+    o próximo passo.
+  */
+  const [tentouSemPolo, setTentouSemPolo] = useState(false);
+  // Reabrir o diálogo é começar de novo: o aviso da tentativa anterior não volta.
+  useEffect(() => { if (!open) setTentouSemPolo(false); }, [open]);
+  const faltaAtivo = poloAtivo.length === 0;
+  const faltaPassivo = reus.length === 0;
+  const avisoDoPolo = (falta: boolean) => tentouSemPolo && falta;
 
   /**
    * A CITAÇÃO DO CABEÇALHO, por polo — e só para o lado que está vazio.
@@ -964,7 +980,23 @@ export function ImportarProcessoDialog({
         </button>
       </div>
 
-      <form onSubmit={handleSubmit((d) => importar.mutate(d))} className="flex flex-1 flex-col overflow-hidden">
+      <form
+        onSubmit={handleSubmit((d) => {
+          if (faltaAtivo || faltaPassivo) {
+            setTentouSemPolo(true);
+            toast.error(
+              faltaAtivo && faltaPassivo
+                ? 'Informe os dois polos: quem move a ação e contra quem.'
+                : faltaAtivo
+                  ? 'Informe o polo ativo: quem move a ação.'
+                  : 'Informe o polo passivo: contra quem é a ação.',
+            );
+            return;
+          }
+          importar.mutate(d);
+        })}
+        className="flex flex-1 flex-col overflow-hidden"
+      >
         {/*
           `grid-cols-1` NÃO É REDUNDANTE — era o modal vazando no celular.
 
@@ -1484,7 +1516,12 @@ export function ImportarProcessoDialog({
           )}
 
           {/* ---- POLO ATIVO: quem pede ---- */}
-          <div className="space-y-2 rounded-xl border p-3">
+          <div
+            className={cn(
+              'space-y-2 rounded-xl border p-3',
+              avisoDoPolo(faltaAtivo) && 'border-amber-400 ring-1 ring-amber-300 dark:border-amber-700 dark:ring-amber-800',
+            )}
+          >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <label className="flex items-center gap-1.5 text-sm font-medium">
                 <Users className="h-4 w-4 text-muted-foreground" /> Polo ativo — quem pede *
@@ -1519,6 +1556,11 @@ export function ImportarProcessoDialog({
                 )}
               </button>
             </div>
+            {avisoDoPolo(faltaAtivo) && (
+              <p role="alert" className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                Obrigatório: diga quem move a ação — o sindicato, um filiado ou outra parte.
+              </p>
+            )}
 
             {/*
               A CITAÇÃO VEM ANTES DA BUSCA, não depois da ajuda.
@@ -1651,10 +1693,20 @@ export function ImportarProcessoDialog({
           </div>
 
           {/* ---- POLO PASSIVO: contra quem ---- */}
-          <div className="space-y-2 rounded-xl border p-3">
+          <div
+            className={cn(
+              'space-y-2 rounded-xl border p-3',
+              avisoDoPolo(faltaPassivo) && 'border-amber-400 ring-1 ring-amber-300 dark:border-amber-700 dark:ring-amber-800',
+            )}
+          >
             <label className="flex items-center gap-1.5 text-sm font-medium">
-              <Building2 className="h-4 w-4 text-muted-foreground" /> Polo passivo — contra quem
+              <Building2 className="h-4 w-4 text-muted-foreground" /> Polo passivo — contra quem *
             </label>
+            {avisoDoPolo(faltaPassivo) && (
+              <p role="alert" className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                Obrigatório: diga contra quem é a ação. Se o sindicato é o réu, ele entra aqui.
+              </p>
+            )}
 
             {/* Mesma regra do polo ativo: o nome que o ato dá vem antes da busca. */}
             {reus.length === 0 && citacao.has('P') && (
@@ -1684,7 +1736,7 @@ export function ImportarProcessoDialog({
               placeholder="Nome da empresa, órgão ou pessoa…"
               rotuloPrincipal="Réu principal"
               rotuloSecundario="Litisconsorte"
-              vazio="Contra quem é a ação? Dá para deixar em branco e informar depois, na aba Partes."
+              vazio="Contra quem é a ação? Busque pelo nome; se ainda não houver cadastro, escreva como está no processo."
               buscar={buscarReus}
               acoes={[
                 {
