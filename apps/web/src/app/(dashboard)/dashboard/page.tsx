@@ -678,6 +678,10 @@ function Conteudo({
         (integração sã, robô em dia, Diário calado, nada atrasado). Em dia
         tranquilo a zona inteira desaparece e os números sobem naturalmente para
         o topo, que é onde eles devem estar QUANDO não há trabalho urgente.
+
+        E DESDE 09/11/2026 O QUADRO CHEGA RECOLHIDO, a pedido do dono ("ainda
+        estou achando poluído"): uma linha com o sino e uma pílula por tom, e os
+        avisos a um clique. Ver `PainelDeAvisos`.
       */}
       <PainelDeAvisos>
       {/* A fonte externa caiu? Vem antes de tudo que depende dela — inclusive
@@ -1466,19 +1470,21 @@ function AvisoRobo({ robo, resumido }: { robo: ResumoDashboard['robo']; resumido
     conferência de cadastro e saúde de integração — trabalho de quem administra,
     não do advogado que abriu a tela para despachar prazo. E a linha diz o
     número para ninguém achar que sumiu.
+
+    E É UM AVISO DO QUADRO COMO OS OUTROS (09/11/2026). Era um `<p>` sem
+    `data-aviso`, de quando a zona ainda não era um quadro: sozinho, o quadro
+    não o via e se escondia com ele dentro — a linha sumia justamente no dia em
+    que era a única coisa a dizer; acompanhado, saía torta, sem o fio e fora do
+    alinhamento das outras linhas. E não entrava na contagem do quadro recolhido.
   */
   if (resumido && (situacao === 'SEM_OBJETO' || situacao === 'EM_DIA')) {
     if (quantosPendem === 0) return null;
     return (
-      <p className="px-1 text-xs text-muted-foreground">
+      <AlertBar tom="info" href="/processos" acao="Conferir em Processos">
         {quantosPendem === 1
-          ? '1 processo com pendência de leitura no CNJ'
-          : `${quantosPendem} processos com pendência de leitura no CNJ`}
-        {' — '}
-        <Link href="/processos" className="underline underline-offset-2 hover:text-foreground">
-          conferir em Processos
-        </Link>
-      </p>
+          ? '1 processo com pendência de leitura no CNJ.'
+          : `${quantosPendem} processos com pendência de leitura no CNJ.`}
+      </AlertBar>
     );
   }
 
