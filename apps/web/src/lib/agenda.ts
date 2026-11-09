@@ -1388,6 +1388,36 @@ export function paginasChegaramAHoje(
   return !!ultimo && diaBRDe(ultimo.inicio) >= diaBR(agora);
 }
 
+/**
+ * TODAS · PRÓXIMAS ABRE EM HOJE, MESMO COM MUITA COISA PARA TRÁS (09/11/2026).
+ *
+ * A janela "adiante" vem da API em ordem crescente e começa pelas abertas de
+ * dia anterior (`whereDaJanela`, na API). Enquanto o âmbar era o grupo do topo,
+ * essa era a própria ordem da tela. Com o âmbar no fim (`ordemDaAgenda`), uma
+ * primeira página só de atrasadas — 50 ou mais no recorte — abriria a lista sem
+ * nada de hoje e com o "Carregar mais" no alto. Então a tela pede sozinha as
+ * páginas seguintes até a última carregada chegar a hoje.
+ *
+ * Para enquanto qualquer busca roda (a página seguinte ou a recarga de todas),
+ * com os dados da janela anterior à vista, e no primeiro erro — que o rodapé
+ * mostra, com o botão para tentar de novo. Em 09/11/2026 eram 5 atrasadas na
+ * produção, e isto não dispara: é a rede para o dia em que a fila crescer.
+ */
+export function buscarAteChegarAHoje(p: {
+  listaDeTodas: boolean;
+  janelaDosDados: JanelaDaAgenda;
+  itensNaOrdemDaApi: readonly { inicio: string }[];
+  agora: number;
+  hasNextPage?: boolean;
+  isPlaceholderData: boolean;
+  isFetching: boolean;
+  isFetchNextPageError: boolean;
+}): boolean {
+  if (!p.listaDeTodas || p.janelaDosDados !== 'adiante') return false;
+  if (!p.hasNextPage || p.isPlaceholderData || p.isFetching || p.isFetchNextPageError) return false;
+  return !paginasChegaramAHoje(p.itensNaOrdemDaApi, true, p.agora);
+}
+
 /** "09:30" no relógio de Teresina (UTC−3 fixo), o mesmo do dia do cabeçalho. */
 export function horaBRDe(iso: string): string {
   const t = new Date(iso).getTime();
@@ -1421,7 +1451,7 @@ type ItemDaLista = Pick<Compromisso, 'id' | 'inicio' | 'status' | 'tipo' | 'orig
 export interface GrupoDaLista<T extends ItemDaLista = Compromisso> {
   /** 'ficaram-para-tras' ou o próprio 'AAAA-MM-DD'. */
   chave: string;
-  /** O grupo âmbar do topo: abertas de dia anterior. */
+  /** O grupo âmbar do FIM: abertas de dia anterior (era o do topo até 09/11/2026). */
   paraTras: boolean;
   /** Dia de Teresina do grupo; nulo no grupo âmbar, que mistura dias. */
   ymd: string | null;
@@ -1437,11 +1467,58 @@ const porInicioEId = (a: { inicio: string; id: string }, b: { inicio: string; id
 };
 
 /**
+ * HOJE PRIMEIRO, O QUE JÁ PASSOU NO FIM — a ordem da Agenda (09/11/2026).
+ *
+ * Pedido do dono: *"quero que mostre como prioridade primeiro as tarefas mais
+ * recentes e por último as mais antigas"*. Perguntado, ele escolheu esta
+ * leitura: o que é de hoje e dos próximos dias vem no topo, do mais perto ao
+ * mais longe; o que é de dia anterior vai para o fim, do mais recente ao mais
+ * antigo.
+ *
+ * ERA O CONTRÁRIO: as atrasadas subiam, a mais antiga primeiro, e a agenda abria
+ * pela "Elaborar manifestação" de 22/10, a atrasada mais antiga da produção em
+ * 09/11, com as duas atividades do dia abaixo dela.
+ *
+ * A RÉGUA É O DIA DE TERESINA, NÃO A SITUAÇÃO. Para a aberta, "de dia anterior"
+ * é o mesmo que atrasada (`estadoDoPrazoEm`). Mas a aba Hoje traz também o que
+ * foi FECHADO hoje, seja qual for a data dele (`recorteHoje`, na API), e o
+ * cancelamento automático fecha de madrugada: de 20/10 a 09/11/2026, em 9 dos 21
+ * dias a aba teve um ou dois dias passados assim, e pela situação eles ficavam
+ * acima de Hoje.
+ *
+ * NADA URGENTE AFUNDA: a aberta de hoje com a hora passada é de hoje e continua
+ * no topo — ela está acontecendo. O que ficou para trás segue a um toque, na
+ * aba "Ficaram para trás".
+ *
+ * "Minhas primeiro" (só quando o quadro mostra o trabalho de mais de uma pessoa)
+ * vale dentro de cada metade. As colunas FECHADAS do quadro têm ordem própria,
+ * pelo instante em que terminaram (`visiveisDaColuna`); a lista por dia
+ * reagrupa tudo (`agruparPorDia`), pela mesma régua.
+ */
+export function ordemDaAgenda<T extends { id: string; inicio: string }>(
+  cs: readonly T[],
+  opcoes: { agora: number; minha?: (c: T) => boolean },
+): T[] {
+  const hojeYmd = diaBR(opcoes.agora);
+  const jaPassou = (c: T) => Number(diaBRDe(c.inicio) < hojeYmd);
+  const minha = (c: T) => Number(opcoes.minha?.(c) ?? false);
+  return [...cs].sort(
+    (a, b) =>
+      jaPassou(a) - jaPassou(b) ||
+      minha(b) - minha(a) ||
+      (jaPassou(a) ? porInicioEId(b, a) : porInicioEId(a, b)),
+  );
+}
+
+/**
  * A LISTA EM GRUPOS POR DIA DE TERESINA.
  *
- * - `adiante`: primeiro o grupo "Ficaram para trás" (a régua de `estaAtrasado`,
- *   a mais antiga primeiro), depois um grupo por dia, do mais cedo ao mais
- *   tarde. Dentro do dia, as TAREFAS (botão cheio Concluir, D7) vêm antes das
+ * - `adiante`: primeiro um grupo por dia DE HOJE EM DIANTE, do mais cedo ao
+ *   mais tarde; depois o grupo "Ficaram para trás" (a régua de `estaAtrasado`),
+ *   da mais recente para a mais antiga; por último os dias ANTERIORES que ainda
+ *   aparecem (na aba Hoje, o que foi fechado hoje com data de outro dia), do
+ *   mais recente ao mais antigo. A ordem virou em 09/11/2026 — o porquê está em
+ *   `ordemDaAgenda`. Dentro do dia, as TAREFAS (botão cheio Concluir, D7) vêm antes das
  *   de hora marcada, e cada metade por início. Não existe campo "dia inteiro"
  *   no banco: a regra D7 já decide o que é tarefa, e uma segunda regra
  *   divergiria dela.
@@ -1491,21 +1568,7 @@ export function agruparPorDia<T extends ItemDaLista>(
   }
   if (opcoes.incluirHoje && sentido === 'adiante' && !porDia.has(hojeYmd)) porDia.set(hojeYmd, []);
 
-  const grupos: GrupoDaLista<T>[] = [];
-  if (paraTras.length > 0) {
-    grupos.push({
-      chave: 'ficaram-para-tras',
-      paraTras: true,
-      ymd: null,
-      hoje: false,
-      rotulo: 'Ficaram para trás',
-      itens: [...paraTras].sort((a, b) => pagina(a) - pagina(b) || porInicioEId(a, b)),
-    });
-  }
-
-  const dias = [...porDia.keys()].sort();
-  if (sentido === 'anteriores') dias.reverse();
-  for (const ymd of dias) {
+  const grupoDoDia = (ymd: string): GrupoDaLista<T> => {
     const doDia = [...(porDia.get(ymd) ?? [])];
     if (sentido === 'anteriores') {
       doDia.sort((a, b) => pagina(a) - pagina(b) || porInicioEId(b, a));
@@ -1516,15 +1579,38 @@ export function agruparPorDia<T extends ItemDaLista>(
         return pagina(a) - pagina(b) || horaA - horaB || porInicioEId(a, b);
       });
     }
+    return { chave: ymd, paraTras: false, ymd, hoje: ymd === hojeYmd, rotulo: rotuloDoCabecalho(ymd, hojeYmd), itens: doDia };
+  };
+
+  const dias = [...porDia.keys()].sort();
+  // Anteriores: tudo decrescente. Adiante: de hoje em diante, crescente; o que é
+  // de dia anterior desce para o fim, do mais recente ao mais antigo.
+  const deHojeEmDiante = sentido === 'anteriores' ? [] : dias.filter((d) => d >= hojeYmd);
+  const passados = (sentido === 'anteriores' ? dias : dias.filter((d) => d < hojeYmd)).reverse();
+
+  const grupos = deHojeEmDiante.map(grupoDoDia);
+  /*
+    O QUE FICOU PARA TRÁS VEM DEPOIS DE TUDO O QUE É DE HOJE EM DIANTE, a mais
+    recente primeiro (09/11/2026), e antes dos dias passados já fechados: o que
+    ainda pede mão vem antes do que é só registro.
+
+    SEM A ORDEM DA PÁGINA AQUI. Em Todas · Próximas a API manda as atrasadas
+    antes de hoje, e a tela pede as páginas até chegar a hoje
+    (`buscarAteChegarAHoje`): nenhuma página posterior traz atrasada nova. O
+    "Carregar mais" mora ANTES deste grupo (`ListaPorDia`, prop
+    `antesDoQueFicouParaTras`), onde os dias da página seguinte entram.
+  */
+  if (paraTras.length > 0) {
     grupos.push({
-      chave: ymd,
-      paraTras: false,
-      ymd,
-      hoje: ymd === hojeYmd,
-      rotulo: rotuloDoCabecalho(ymd, hojeYmd),
-      itens: doDia,
+      chave: 'ficaram-para-tras',
+      paraTras: true,
+      ymd: null,
+      hoje: false,
+      rotulo: 'Ficaram para trás',
+      itens: [...paraTras].sort((a, b) => porInicioEId(b, a)),
     });
   }
+  grupos.push(...passados.map(grupoDoDia));
   return grupos;
 }
 

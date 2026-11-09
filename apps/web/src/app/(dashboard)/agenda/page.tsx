@@ -37,7 +37,7 @@ import { useAbrirPorUrl } from '@/lib/use-abrir-por-url';
 import { useTelaLarga } from '@/lib/use-tela-larga';
 import {
   listarCompromissos, buscarRecortes, getCompromisso, mudarStatusCompromisso, excluirCompromisso, estaFechado,
-  listarResponsaveis, ehMinha, estaAtrasado, temHoraMarcada,
+  listarResponsaveis, ehMinha, temHoraMarcada, ordemDaAgenda, buscarAteChegarAHoje,
   filtroDoServidor, contarFiltrosAtivos, lerUrlDaAgenda, RECORTES, RECORTE_PADRAO,
   agruparPorDia, semRepetidas, proximoCursor, PAGINA_DA_AGENDA,
   opcoesDaLista, estadoDoRodape, quantasNoRecorte, totalDoGrupoParaTras, visaoDaAgenda,
@@ -163,21 +163,16 @@ function useHojeBR(): string {
 }
 
 /**
- * O QUE FICOU PARA TRÁS SOBE, E DEPOIS O QUE É MEU.
- *
- * A lista chega do servidor em ordem de início, então as atrasadas já vêm
- * primeiro; a ordenação só garante que "minhas primeiro" não as empurre para
- * baixo. "Minhas primeiro" vale só quando o quadro mostra o trabalho de mais
- * de uma pessoa — num quadro que já é de uma pessoa, não distingue nada.
- * A lista por dia reordena tudo pela hora (`agruparPorDia`) e ignora isto.
+ * A ORDEM DO QUADRO — hoje primeiro, o que já passou no fim (09/11/2026).
+ * A regra e o porquê moram em `ordemDaAgenda` (lib/agenda), testada com datas.
+ * "Minhas primeiro" vale só quando o quadro mostra o trabalho de mais de uma
+ * pessoa — num quadro que já é de uma pessoa, não distingue nada. A lista por
+ * dia reagrupa tudo pela mesma régua (`agruparPorDia`).
  */
 function ordenarParaTrabalhar(cs: Compromisso[], meuId: string | undefined, aplicarMinhas: boolean): Compromisso[] {
-  // Estável: dentro de cada grupo a ordem por data que veio da API se mantém.
-  return [...cs].sort((a, b) => {
-    const atraso = Number(estaAtrasado(b)) - Number(estaAtrasado(a));
-    if (atraso !== 0) return atraso;
-    if (!aplicarMinhas || !meuId) return 0;
-    return Number(ehMinha(b, meuId)) - Number(ehMinha(a, meuId));
+  return ordemDaAgenda(cs, {
+    agora: Date.now(),
+    minha: aplicarMinhas && meuId ? (c) => ehMinha(c, meuId) : undefined,
   });
 }
 
@@ -462,6 +457,26 @@ function AgendaConteudo() {
   /** A janela dos dados À VISTA — durante a troca, ainda é a anterior. */
   const janelaDosDados: JanelaDaAgenda = todas.data?.pages[0]?.janela ?? janela;
 
+  /*
+    TODAS · PRÓXIMAS ABRE EM HOJE (09/11/2026). A API manda as atrasadas antes
+    de hoje; com o âmbar no fim da lista, uma primeira página só delas deixaria
+    hoje de fora. As regras de quando pedir moram em `buscarAteChegarAHoje`.
+  */
+  const faltaChegarAHoje = buscarAteChegarAHoje({
+    listaDeTodas,
+    janelaDosDados,
+    itensNaOrdemDaApi: itensDeTodas,
+    agora: Date.now(),
+    hasNextPage: todas.hasNextPage,
+    isPlaceholderData: todas.isPlaceholderData,
+    isFetching: todas.isFetching,
+    isFetchNextPageError: todas.isFetchNextPageError,
+  });
+  const { fetchNextPage } = todas;
+  useEffect(() => {
+    if (faltaChegarAHoje) void fetchNextPage({ cancelRefetch: false });
+  }, [faltaChegarAHoje, fetchNextPage]);
+
   /** O que a aba mostra agora, venha do quadro ou das páginas de Todas. */
   const listaDaAba = listaDeTodas ? itensDeTodas : compromissos;
   const listaDaAbaPronta = listaDeTodas
@@ -523,7 +538,7 @@ function AgendaConteudo() {
     // O dia de Teresina, e não o do aparelho: o mesmo dos grupos da lista.
     const base = !diaSelecionado ? listaDaAba : doDiaDeTeresina(compromissosDoMes, ymdDoCalendario(diaSelecionado));
     return ordenarParaTrabalhar(base, user?.id, quadroCompartilhado);
-    // `hoje` entra porque "ficou para trás" (estaAtrasado) muda quando o dia vira.
+    // `hoje` entra porque a divisa entre hoje e o que já passou anda quando o dia vira.
   }, [diaSelecionado, listaDaAba, compromissosDoMes, user?.id, quadroCompartilhado, hoje]);
 
   /*
@@ -751,8 +766,9 @@ function AgendaConteudo() {
   );
 
   /*
-    Na lista, o grupo "Ficaram para trás" já diz isto no topo, com a mesma
-    saída. Mostrar a faixa também seria dizer o mesmo atraso duas vezes.
+    Na lista, o grupo "Ficaram para trás" (no fim, desde 09/11/2026) e o número
+    da aba já dizem isto, com a mesma saída. A faixa seria o mesmo atraso duas
+    vezes — e no topo, que o dono pediu para o trabalho de hoje.
   */
   const atrasadasHoje = aba === 'hoje' && !diaSelecionado && visao === 'quadro' ? contagem?.atrasadas ?? 0 : 0;
 
@@ -973,8 +989,10 @@ function AgendaConteudo() {
 
       {/*
         "HOJE" INCLUI O QUE FICOU PARA TRÁS. A faixa do topo acusava atrasadas e
-        a agenda abria sem elas; agora elas vêm no quadro, no topo, com a data em
-        âmbar — e esta linha diz isso uma vez, com a saída para vê-las sozinhas.
+        a agenda abria sem elas; agora elas vêm no quadro, DEPOIS das de hoje em
+        cada coluna (09/11/2026), com a data em âmbar — e esta linha diz isso uma
+        vez, com a saída para vê-las sozinhas. Ela dizia "estão no topo", e
+        deixou de ser verdade no mesmo dia.
       */}
       {atrasadasHoje > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-200">
@@ -982,8 +1000,8 @@ function AgendaConteudo() {
             {/* O relógio, como no grupo âmbar da lista: ficou para trás não é perigo. */}
             <Clock className="mt-0.5 h-4 w-4 shrink-0" />
             {atrasadasHoje === 1
-              ? '1 atividade de dias anteriores ficou para trás e está no topo, com a data em âmbar.'
-              : `${atrasadasHoje} atividades de dias anteriores ficaram para trás e estão no topo, com a data em âmbar.`}
+              ? '1 atividade de dias anteriores ficou para trás: está depois das de hoje, com a data em âmbar.'
+              : `${atrasadasHoje} atividades de dias anteriores ficaram para trás: estão depois das de hoje, com a data em âmbar.`}
           </span>
           <button
             type="button"
@@ -1071,15 +1089,22 @@ function AgendaConteudo() {
             apontado={destacado}
             meuId={quadroCompartilhado ? user?.id : undefined}
             onNovo={onNovo}
+            /*
+              O "CARREGAR MAIS" ENTRA ANTES DO ÂMBAR (09/11/2026): a página
+              seguinte traz dias depois do último à vista, e eles entram ali —
+              não abaixo do que ficou para trás, no fim da lista.
+            */
+            antesDoQueFicouParaTras={
+              listaDeTodas ? (
+                <RodapeDaPaginacao
+                  mostrando={itensDeTodas.length}
+                  total={totalDaJanela}
+                  {...estadoDoRodape(todas)}
+                  onCarregarMais={() => todas.fetchNextPage()}
+                />
+              ) : undefined
+            }
           />
-          {listaDeTodas && (
-            <RodapeDaPaginacao
-              mostrando={itensDeTodas.length}
-              total={totalDaJanela}
-              {...estadoDoRodape(todas)}
-              onCarregarMais={() => todas.fetchNextPage()}
-            />
-          )}
         </div>
         </div>
       ) : (

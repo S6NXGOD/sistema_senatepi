@@ -1,5 +1,6 @@
 'use client';
 
+import { Fragment } from 'react';
 import { Clock, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Esqueleto } from '@/components/ui/esqueleto';
@@ -124,7 +125,8 @@ export function RodapeDaPaginacao({
 }
 
 /**
- * A AGENDA COMO LISTA POR DIA — o que tenho hoje e depois, na ordem do tempo.
+ * A AGENDA COMO LISTA POR DIA — o que tenho hoje e depois, na ordem do tempo, e
+ * no fim o que já passou (09/11/2026, ver `ordemDaAgenda`).
  *
  * Os grupos chegam prontos de `agruparPorDia` (lib/agenda), que é pura e
  * testada; aqui só se desenha. Cada linha é o MESMO `CompromissoCard` do
@@ -135,7 +137,7 @@ export function RodapeDaPaginacao({
  * continua no cartão.
  */
 export function ListaPorDia({
-  grupos, vazio, vazioDeHoje, onVerSoParaTras, totalParaTras,
+  grupos, vazio, vazioDeHoje, onVerSoParaTras, totalParaTras, antesDoQueFicouParaTras,
   onAbrir, onEditar, onVerTriagem, onAcao, onConcluir, onCancelar, onRemarcar, onExcluir,
   podeExcluir, podeEditar = false, apontado, meuId, onNovo,
 }: {
@@ -151,6 +153,13 @@ export function ListaPorDia({
    * (Todas · Próximas com mais páginas). Ver `totalDoGrupoParaTras`.
    */
   totalParaTras?: number;
+  /**
+   * O "Carregar mais" de Todas. Mora ANTES do grupo "Ficaram para trás", que
+   * desde 09/11/2026 vem depois dos dias: a página seguinte traz dias depois do
+   * último à vista, e eles entram ali — nunca abaixo do âmbar. Em Todas não há
+   * dia passado depois do âmbar (a janela Próximas não traz fechada antiga).
+   */
+  antesDoQueFicouParaTras?: React.ReactNode;
   onAbrir: (c: Compromisso) => void;
   onEditar: (c: Compromisso) => void;
   onVerTriagem: (atendimentoId: string) => void;
@@ -167,14 +176,20 @@ export function ListaPorDia({
 }) {
   if (grupos.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">{vazio}</div>
+      <div className="space-y-4">
+        <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">{vazio}</div>
+        {antesDoQueFicouParaTras}
+      </div>
     );
   }
 
+  const temParaTras = grupos.some((g) => g.paraTras);
   return (
     <div className="space-y-4">
       {grupos.map((g) => (
-        /*
+        <Fragment key={g.chave}>
+        {g.paraTras && antesDoQueFicouParaTras}
+        {/*
           O CABEÇALHO FIXO MORA DENTRO DA SEÇÃO: gruda no topo enquanto o dia
           está na tela e sai junto com o último cartão dele. Quem rola é o
           <main> do painel, com padding — daí a margem negativa (cobre a
@@ -185,8 +200,8 @@ export function ListaPorDia({
           toque, e a 400 px cada dia gastava uma faixa alta só para dizer a data.
           O único alvo é "Ver só essas", que guarda os 44 px com margem negativa
           para não engordar a faixa.
-        */
-        <section key={g.chave} aria-labelledby={`dia-${g.chave}`} className="space-y-2">
+        */}
+        <section aria-labelledby={`dia-${g.chave}`} className="space-y-2">
           <h3
             id={`dia-${g.chave}`}
             className={cn(
@@ -260,7 +275,9 @@ export function ListaPorDia({
             </div>
           )}
         </section>
+        </Fragment>
       ))}
+      {!temParaTras && antesDoQueFicouParaTras}
     </div>
   );
 }

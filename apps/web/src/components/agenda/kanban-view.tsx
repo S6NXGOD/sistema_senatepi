@@ -50,7 +50,8 @@ const TETO_TERMINAL = 10;
  * "Ver as outras 27" (achado em 14/09/2026). As terminais passaram a ordenar
  * decrescente ANTES de cortar — e continuam assim quando a pessoa abre o resto,
  * para as dez que ela já viu não trocarem de lugar. As colunas abertas mantêm
- * a ordem que a página decidiu (o que ficou para trás sobe).
+ * a ordem que a página decidiu: hoje primeiro, o que ficou para trás no fim
+ * (`ordemDaAgenda`, desde 09/11/2026; até ali, o que ficou para trás subia).
  *
  * MAS "MAIS RECENTE" ERA MEDIDO PELO DIA MARCADO (corrigido em 28/09/2026).
  *

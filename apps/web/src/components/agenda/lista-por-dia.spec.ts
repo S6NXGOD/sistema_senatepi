@@ -4,10 +4,12 @@ import { isValidElement, type ReactNode } from 'react';
 import {
   PAGINA_DA_AGENDA,
   agruparPorDia,
+  buscarAteChegarAHoje,
   estadoDoPrazoEm,
   estadoDoRodape,
   horaBRDe,
   opcoesDaLista,
+  ordemDaAgenda,
   paginaDeCadaItem,
   paginasChegaramAHoje,
   proximoCursor,
@@ -88,19 +90,26 @@ describe('agruparPorDia — Próximas (e as abas Hoje, 7 dias, Em aberto)', () =
   ];
   const grupos = agruparPorDia(itens, { agora: AGORA, sentido: 'adiante', incluirHoje: true });
 
-  it('o que ficou para trás vem num grupo só, no topo, a mais antiga primeiro', () => {
-    expect(grupos[0]).toMatchObject({ chave: 'ficaram-para-tras', paraTras: true, ymd: null, rotulo: 'Ficaram para trás' });
-    expect(ids(grupos[0].itens)).toEqual(['a', 'b']);
-  });
+  const ambar = grupos[grupos.length - 1];
 
-  it('depois um grupo por dia de Teresina, do mais cedo ao mais tarde', () => {
+  /**
+   * HOJE PRIMEIRO, O QUE FICOU PARA TRÁS NO FIM (09/11/2026). Até ali o âmbar era
+   * o primeiro grupo, com a mais antiga no topo, e a agenda abria pelo que tinha
+   * duas semanas.
+   */
+  it('primeiro um grupo por dia de Teresina, de hoje em diante, do mais cedo ao mais tarde', () => {
     expect(grupos.map((g) => g.rotulo)).toEqual([
-      'Ficaram para trás',
       'Hoje · seg, 14/09',
       'Amanhã · ter, 15/09',
       'qua, 16/09',
+      'Ficaram para trás',
     ]);
-    expect(grupos[1].hoje).toBe(true);
+    expect(grupos[0].hoje).toBe(true);
+  });
+
+  it('o que ficou para trás vem num grupo só, no FIM, a mais recente primeiro', () => {
+    expect(ambar).toMatchObject({ chave: 'ficaram-para-tras', paraTras: true, ymd: null, rotulo: 'Ficaram para trás' });
+    expect(ids(ambar.itens)).toEqual(['b', 'a']);
   });
 
   /**
@@ -108,16 +117,17 @@ describe('agruparPorDia — Próximas (e as abas Hoje, 7 dias, Em aberto)', () =
    * início. A audiência do robô é tarefa. A concluída de hoje continua no dia.
    */
   it('dentro do dia: tarefas primeiro, depois a hora marcada, cada uma por início', () => {
-    expect(ids(grupos[1].itens)).toEqual(['d', 'g', 'e', 'c']);
+    expect(ids(grupos[0].itens)).toEqual(['d', 'g', 'e', 'c']);
   });
 
   it('dia sem atividade é pulado', () => {
     expect(grupos.some((g) => g.ymd === '2026-09-17')).toBe(false);
   });
 
-  it('a aberta de hoje com a hora passada NÃO sobe para o âmbar: passou da hora é informação', () => {
+  it('a aberta de hoje com a hora passada NÃO vai para o âmbar: ela é de hoje, e fica no topo', () => {
     expect(estadoDoPrazoEm(itens[1], AGORA)).toBe('PASSOU_DA_HORA');
-    expect(ids(grupos[0].itens)).not.toContain('c');
+    expect(ids(ambar.itens)).not.toContain('c');
+    expect(ids(grupos[0].itens)).toContain('c');
   });
 
   it('início igual desempata pelo id, como a API ordena', () => {
@@ -137,11 +147,11 @@ describe('agruparPorDia — Hoje sempre presente', () => {
     ]);
   });
 
-  it('só com o que ficou para trás, Hoje vem logo abaixo do âmbar', () => {
+  it('só com o que ficou para trás, Hoje vazio vem primeiro e o âmbar depois', () => {
     const grupos = agruparPorDia([linha('a', '2026-09-10T15:00:00-03:00', 'PRAZO')], {
       agora: AGORA, sentido: 'adiante', incluirHoje: true,
     });
-    expect(grupos.map((g) => g.chave)).toEqual(['ficaram-para-tras', '2026-09-14']);
+    expect(grupos.map((g) => g.chave)).toEqual(['2026-09-14', 'ficaram-para-tras']);
   });
 
   it('a aba "Ficaram para trás" não inclui Hoje', () => {
@@ -149,6 +159,33 @@ describe('agruparPorDia — Hoje sempre presente', () => {
       agora: AGORA, sentido: 'adiante', incluirHoje: false,
     });
     expect(grupos.map((g) => g.chave)).toEqual(['ficaram-para-tras']);
+  });
+});
+
+/**
+ * A ABA HOJE TRAZ O QUE FOI FECHADO HOJE, SEJA QUAL FOR A DATA (`recorteHoje`,
+ * 18/09/2026) — e o cancelamento automático fecha de madrugada. De 20/10 a
+ * 09/11/2026, em 9 dos 21 dias a aba teve dias passados assim. Pela ordem
+ * crescente dos dias, eles ficavam ACIMA de Hoje.
+ */
+describe('agruparPorDia — os dias passados descem para o fim (09/11/2026)', () => {
+  const grupos = agruparPorDia(
+    [
+      linha('x1', '2026-09-08T09:00:00-03:00', 'PRAZO', 'CANCELADO', true),
+      linha('x2', '2026-09-11T10:00:00-03:00', 'REUNIAO', 'CONCLUIDO'),
+      linha('a', '2026-09-10T15:00:00-03:00', 'PRAZO'),
+      linha('h', '2026-09-14T11:00:00-03:00', 'AUDIENCIA'),
+      linha('f', '2026-09-15T11:00:00-03:00', 'AUDIENCIA'),
+    ],
+    { agora: AGORA, sentido: 'adiante', incluirHoje: true },
+  );
+
+  it('hoje e depois; o que ainda pede mão; e por último o que já fechou, do mais recente ao mais antigo', () => {
+    expect(grupos.map((g) => g.chave)).toEqual(['2026-09-14', '2026-09-15', 'ficaram-para-tras', '2026-09-11', '2026-09-08']);
+  });
+
+  it('o dia passado continua com o rótulo do próprio dia, sem a cor do âmbar', () => {
+    expect(grupos[3]).toMatchObject({ rotulo: 'sex, 11/09', paraTras: false, hoje: false });
   });
 });
 
@@ -183,6 +220,57 @@ describe('agruparPorDia — Anteriores', () => {
    */
   it('dentro do dia também decrescente, pela hora', () => {
     expect(ids(grupos[1].itens)).toEqual(['i', 'h', 'k']);
+  });
+});
+
+/**
+ * A ORDEM DO QUADRO (09/11/2026). A lista reagrupa por dia; o quadro mostra as
+ * colunas abertas na ordem que a página entrega, e é esta.
+ */
+describe('ordemDaAgenda — hoje primeiro, o que já passou no fim', () => {
+  const cs = [
+    linha('velha', '2026-09-01T09:00:00-03:00', 'PRAZO'),
+    linha('ontem', '2026-09-13T09:00:00-03:00', 'PRAZO'),
+    linha('amanha', '2026-09-15T09:00:00-03:00', 'PRAZO'),
+    linha('hoje-cedo', '2026-09-14T08:00:00-03:00', 'AUDIENCIA'),
+    linha('hoje-tarde', '2026-09-14T16:00:00-03:00', 'AUDIENCIA'),
+  ];
+
+  it('de hoje em diante, do mais perto ao mais longe; depois o que passou, do mais recente ao mais antigo', () => {
+    expect(ids(ordemDaAgenda(cs, { agora: AGORA }))).toEqual(['hoje-cedo', 'hoje-tarde', 'amanha', 'ontem', 'velha']);
+  });
+
+  it('a de hoje com a hora passada continua no topo: ela está acontecendo', () => {
+    expect(estadoDoPrazoEm(cs[3], AGORA)).toBe('PASSOU_DA_HORA');
+    expect(ordemDaAgenda(cs, { agora: AGORA })[0].id).toBe('hoje-cedo');
+  });
+
+  it('a divisa é o dia de Teresina: 23h30 de hoje (02h30 UTC de amanhã) é hoje; 23h59 de ontem já passou', () => {
+    const r = ordemDaAgenda(
+      [linha('ontem-tarde', '2026-09-14T02:59:00Z', 'PRAZO'), linha('hoje-noite', '2026-09-15T02:30:00Z', 'PRAZO')],
+      { agora: AGORA },
+    );
+    expect(ids(r)).toEqual(['hoje-noite', 'ontem-tarde']);
+  });
+
+  it('"minhas primeiro" vale dentro de cada metade, sem trazer a velha para cima', () => {
+    const minha = (c: { id: string }) => c.id === 'amanha' || c.id === 'velha';
+    expect(ids(ordemDaAgenda(cs, { agora: AGORA, minha }))).toEqual(['amanha', 'hoje-cedo', 'hoje-tarde', 'velha', 'ontem']);
+  });
+
+  it('a fechada de dia anterior também vai para o fim — a aba Hoje traz o que foi fechado hoje', () => {
+    const r = ordemDaAgenda(
+      [linha('fechada', '2026-09-10T09:00:00-03:00', 'PRAZO', 'CANCELADO'), linha('hoje', '2026-09-14T11:00:00-03:00', 'PRAZO')],
+      { agora: AGORA },
+    );
+    expect(ids(r)).toEqual(['hoje', 'fechada']);
+  });
+
+  it('início igual desempata pelo id, como a API, e a lista recebida não muda', () => {
+    const empate = [linha('b2', '2026-09-15T09:00:00-03:00', 'PRAZO'), linha('a1', '2026-09-15T09:00:00-03:00', 'PRAZO')];
+    const antes = ids(empate);
+    expect(ids(ordemDaAgenda(empate, { agora: AGORA }))).toEqual(['a1', 'b2']);
+    expect(ids(empate)).toEqual(antes);
   });
 });
 
@@ -250,6 +338,79 @@ describe('paginasChegaramAHoje — Todas · Próximas paginada', () => {
 
   it('o último é de ontem às 23h59 de Teresina: ainda não chegou', () => {
     expect(paginasChegaramAHoje([linha('o', '2026-09-14T02:59:00Z', 'PRAZO')], true, AGORA)).toBe(false);
+  });
+});
+
+/**
+ * TODAS · PRÓXIMAS ABRE EM HOJE (09/11/2026). A API manda as atrasadas antes de
+ * hoje; com o âmbar no fim, uma primeira página só delas abriria a lista sem
+ * nada de hoje e com o "Carregar mais" no alto.
+ */
+describe('buscarAteChegarAHoje — a tela pede as páginas até hoje', () => {
+  const atrasadas = Array.from({ length: PAGINA_DA_AGENDA }, (_, i) =>
+    linha(`a${String(i).padStart(2, '0')}`, '2026-09-10T09:00:00-03:00', 'PRAZO'),
+  );
+  const base = {
+    listaDeTodas: true,
+    janelaDosDados: 'adiante' as const,
+    itensNaOrdemDaApi: atrasadas,
+    agora: AGORA,
+    hasNextPage: true,
+    isPlaceholderData: false,
+    isFetching: false,
+    isFetchNextPageError: false,
+  };
+
+  it('primeira página só de atrasadas, e há outra: pede a seguinte sozinha', () => {
+    expect(buscarAteChegarAHoje(base)).toBe(true);
+  });
+
+  it('a última carregada já é de hoje: para', () => {
+    const comHoje = [...atrasadas, linha('h', '2026-09-14T11:00:00-03:00', 'PRAZO')];
+    expect(buscarAteChegarAHoje({ ...base, itensNaOrdemDaApi: comHoje })).toBe(false);
+  });
+
+  it('sem próxima, com busca em curso, depois de um erro ou com os dados da janela velha: não pede', () => {
+    expect(buscarAteChegarAHoje({ ...base, hasNextPage: false })).toBe(false);
+    expect(buscarAteChegarAHoje({ ...base, hasNextPage: undefined })).toBe(false);
+    expect(buscarAteChegarAHoje({ ...base, isFetching: true })).toBe(false);
+    expect(buscarAteChegarAHoje({ ...base, isFetchNextPageError: true })).toBe(false);
+    expect(buscarAteChegarAHoje({ ...base, isPlaceholderData: true })).toBe(false);
+  });
+
+  it('só em Todas · Próximas: Anteriores anda para trás, e as outras abas não paginam', () => {
+    expect(buscarAteChegarAHoje({ ...base, janelaDosDados: 'anteriores' })).toBe(false);
+    expect(buscarAteChegarAHoje({ ...base, listaDeTodas: false })).toBe(false);
+  });
+});
+
+/**
+ * A PÁGINA LIGA AS PEÇAS (09/11/2026). As regras rodam com valores acima; aqui
+ * só a fiação, com os comentários tirados (memória "Negativa bate no
+ * comentário"): o rodapé tem de ir para DENTRO da lista, senão fica abaixo do
+ * âmbar, no fim.
+ */
+describe('a página da Agenda usa a ordem nova', () => {
+  const PAGINA = readFileSync(resolve(__dirname, '../../app/(dashboard)/agenda/page.tsx'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+  const LISTA = PAGINA.slice(PAGINA.indexOf('<ListaPorDia'), PAGINA.indexOf('<KanbanView'));
+
+  it('o "Carregar mais" é passado à lista, antes do âmbar, e não fica solto depois dela', () => {
+    expect(LISTA.indexOf('antesDoQueFicouParaTras={')).toBeGreaterThan(-1);
+    expect(LISTA.indexOf('<RodapeDaPaginacao')).toBeGreaterThan(LISTA.indexOf('antesDoQueFicouParaTras={'));
+    expect(PAGINA.split('<RodapeDaPaginacao').length - 1).toBe(1);
+  });
+
+  it('o quadro ordena por ordemDaAgenda, e Todas pede as páginas até hoje', () => {
+    expect(PAGINA).toContain('return ordemDaAgenda(cs, {');
+    expect(PAGINA).toContain('buscarAteChegarAHoje({');
+    expect(PAGINA).toContain('if (faltaChegarAHoje) void fetchNextPage({ cancelRefetch: false });');
+  });
+
+  it('a faixa do quadro não diz mais que as atrasadas estão no topo', () => {
+    expect(PAGINA).not.toMatch(/est(ão|á) no topo/);
+    expect(PAGINA).toContain('estão depois das de hoje, com a data em âmbar.');
   });
 });
 
